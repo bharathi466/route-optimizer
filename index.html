@@ -70,6 +70,12 @@
       background: #fff;
     }
 
+    select:disabled {
+      background: #f1f5f9;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+
     textarea {
       min-height: 145px;
       resize: vertical;
@@ -139,12 +145,28 @@
     .checkbox-label {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       font-weight: 500;
-      font-size: 0.86rem;
+      font-size: 0.88rem;
       color: var(--text);
       margin: 0;
       cursor: pointer;
+    }
+    .home-toggle-box {
+      margin-top: 12px;
+      padding: 11px 14px;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .home-toggle-box .checkbox-label {
+      font-weight: 600;
+      font-size: 0.92rem;
     }
     .progress-wrap {
       margin-top: 10px;
@@ -390,6 +412,17 @@
         placeholder="1 N Dunton Ave, Arlington Heights, IL; 250 W Dundee Rd, Buffalo Grove, IL; 200 E Northwest Hwy, Palatine, IL"
       ></textarea>
 
+      <!-- Internal Home Destination Checkbox -->
+      <div class="home-toggle-box">
+        <label class="checkbox-label" for="includeHomeCheckbox">
+          <input type="checkbox" id="includeHomeCheckbox" />
+          🏠 End route at Home (final destination)
+        </label>
+        <span id="homeTripNote" class="hidden" style="font-size: 0.82rem; color: var(--primary); font-weight: 600;">
+          All stops above will optimize to finish at Home
+        </span>
+      </div>
+
       <div class="grid">
         <div>
           <label for="goal">Optimize For</label>
@@ -478,6 +511,11 @@
 
   <script>
     // =========================================================================
+    // INTERNAL HOME ADDRESS (Kept hidden from screen display)
+    // =========================================================================
+    const HOME_ADDRESS = "901 Corey Lane, Wheeling, IL 60090";
+
+    // =========================================================================
     // CONSTANT STARTING STORES (Edit or add more stores directly here)
     // =========================================================================
     const DEFAULT_SOURCES = [
@@ -513,6 +551,8 @@
     const rawOcrOutput = document.getElementById("rawOcrOutput");
 
     const addressesEl = document.getElementById("addresses");
+    const includeHomeCheckbox = document.getElementById("includeHomeCheckbox");
+    const homeTripNote = document.getElementById("homeTripNote");
     const goalEl = document.getElementById("goal");
     const tripTypeEl = document.getElementById("tripType");
     const maxStopsEl = document.getElementById("maxStopsPerLink");
@@ -524,6 +564,12 @@
 
     let serverGoogleReady = false;
     let isScanning = false;
+
+    includeHomeCheckbox.addEventListener("change", () => {
+      const checked = includeHomeCheckbox.checked;
+      tripTypeEl.disabled = checked;
+      homeTripNote.classList.toggle("hidden", !checked);
+    });
 
     // =========================================================================
     // SOURCE PRESET MANAGEMENT
@@ -973,12 +1019,18 @@
         .map(s => s.trim())
         .filter(Boolean);
 
-      if (destAddresses.length < 1) {
-        setStatus("Please upload screenshots or enter at least 1 destination address.", true);
+      const includeHome = includeHomeCheckbox.checked;
+
+      if (destAddresses.length < 1 && !includeHome) {
+        setStatus("Please upload screenshots, enter destination addresses, or check End at Home.", true);
         return;
       }
 
-      const addresses = [source.address, ...destAddresses];
+      const addresses = includeHome
+        ? [source.address, ...destAddresses, HOME_ADDRESS]
+        : [source.address, ...destAddresses];
+
+      const effectiveTripType = includeHome ? "fixed_end" : tripTypeEl.value;
 
       optimizeBtn.disabled = true;
       resultsCard.classList.add("hidden");
@@ -993,16 +1045,22 @@
         let result;
         if (useGoogle) {
           setStatus("Calculating traffic-aware matrix via Google Routes API...");
-          result = await optimizeViaServer(addresses, goalEl.value, tripTypeEl.value);
+          result = await optimizeViaServer(addresses, goalEl.value, effectiveTripType);
         } else {
-          result = await optimizeFreeMode(addresses, goalEl.value, tripTypeEl.value);
+          result = await optimizeFreeMode(addresses, goalEl.value, effectiveTripType);
         }
 
-        result.orderedStops.forEach(stop => {
-          stop.displayName = stop.address === source.address ? source.label : stop.address;
+        result.orderedStops.forEach((stop, idx) => {
+          if (stop.address === source.address) {
+            stop.displayName = source.label;
+          } else if (includeHome && idx === result.orderedStops.length - 1 && stop.address === HOME_ADDRESS) {
+            stop.displayName = "Home";
+          } else {
+            stop.displayName = stop.address;
+          }
         });
 
-        renderResults(result);
+        renderResults(result, includeHome);
         setStatus("Route optimized!");
       } catch (err) {
         console.error(err);
@@ -1033,7 +1091,8 @@
       let biasCoord = null;
 
       for (let i = 0; i < addresses.length; i++) {
-        setStatus(`Locating stop ${i + 1} of ${addresses.length}...`);
+        const labelForStatus = addresses[i] === HOME_ADDRESS ? "Home" : `stop ${i + 1}`;
+        setStatus(`Locating ${labelForStatus} (${i + 1} of ${addresses.length})...`);
         const pt = await geocodeAddressWithFallback(addresses[i], biasCoord);
         if (!pt) {
           throw new Error(`Could not locate address: "${addresses[i]}". Try adding city/state/zip.`);
@@ -1108,7 +1167,6 @@
       let pt = await geocodeAddress(query, biasCoord);
       if (pt) return pt;
 
-      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
       const stripped = query
         .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
         .replace(/\s*,\s*,/g, ",")
@@ -1158,7 +1216,6 @@
         }
       } catch (_) {}
 
-      // Fallback to stricter Nominatim geocoder if Photon lacked an exact street/ZIP match
       await new Promise(r => setTimeout(r, 1100));
       try {
         const res = await fetch(
@@ -1213,8 +1270,6 @@
         return sum;
       };
 
-      // For Round Trips: if forward & reverse loop directions are within 2%,
-      // pick the direction whose first stop is closer to the starting location.
       const preferCloserFirstIfRoundTrip = order => {
         if (tripType !== "round_trip" || order.length < 4) return order;
         const firstStop = order[1];
@@ -1363,7 +1418,7 @@
       return links;
     }
 
-    function renderResults(data) {
+    function renderResults(data, includeHome) {
       resultsCard.classList.remove("hidden");
 
       if (data.warning) {
@@ -1384,14 +1439,19 @@
         maxStops
       );
 
+      const encodedHome = encodeURIComponent(HOME_ADDRESS);
       const linksContainer = document.getElementById("linksContainer");
       linksContainer.innerHTML = "";
       links.forEach(item => {
+        const displayUrl = includeHome
+          ? item.url.split(encodedHome).join("[Home]")
+          : item.url;
+
         const div = document.createElement("div");
         div.className = "link-card";
         div.innerHTML = `
           <strong>${escapeHtml(item.legLabel)}</strong>
-          <div class="link-url">${escapeHtml(item.url)}</div>
+          <div class="link-url">${escapeHtml(displayUrl)}</div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <a class="btn-link btn-maps" href="${item.url}" target="_blank" rel="noopener noreferrer">
               Open in Google Maps ↗
