@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Route Optimizer → Google Maps</title>
+  <!-- Browser-based OCR (Tesseract.js v5) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --bg: #f4f6f9;
+      --card: #ffffff;
+      --text: #1a202c;
+      --muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --success-hover: #15803d;
+      --border: #e2e8f0;
+      --warn-bg: #fffbeb;
+      --warn-text: #92400e;
+      --warn-border: #fde68a;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 920px;
+      margin: 24px auto;
+      padding: 0 14px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+      margin-bottom: 18px;
+    }
+
+    h1 { margin: 0 0 6px; font-size: 1.45rem; }
+    .subtitle {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      background: #fff;
+    }
+
+    textarea {
+      min-height: 145px;
+      resize: vertical;
+    }
+
+    input[type="text"]:focus, textarea:focus, select:focus {
+      outline: 2px solid rgba(37, 99, 235, 0.25);
+      border-color: var(--primary);
+    }
+
+    .source-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 16px;
+    }
+
+    .source-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .source-row select { flex: 1; min-width: 210px; }
+
+    .source-preview {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .add-preset-panel {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+      display: grid;
+      grid-template-columns: 1fr 1.6fr auto;
+      gap: 8px;
+    }
+    @media (max-width: 640px) {
+      .add-preset-panel { grid-template-columns: 1fr; }
+    }
+
+    /* Screenshot Upload Panel */
+    .ocr-box {
+      background: #f0f7ff;
+      border: 1.5px dashed #93c5fd;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 16px;
+    }
+    .ocr-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .ocr-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .checkbox-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+      font-size: 0.86rem;
+      color: var(--text);
+      margin: 0;
+      cursor: pointer;
+    }
+    .progress-wrap {
+      margin-top: 10px;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: #dbeafe;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--primary);
+      transition: width 0.15s ease;
+    }
+    .ocr-status {
+      font-size: 0.85rem;
+      color: #1e40af;
+      margin-top: 6px;
+    }
+    details.raw-ocr {
+      margin-top: 10px;
+      font-size: 0.84rem;
+      color: var(--muted);
+    }
+    details.raw-ocr pre {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+      color: var(--text);
+      margin-top: 6px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 16px;
+      align-items: center;
+    }
+
+    button, .btn-link, .file-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.92rem;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: background 0.15s ease;
+    }
+
+    .btn-sm { padding: 8px 12px; font-size: 0.85rem; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: #f8fafc; }
+
+    .btn-danger {
+      background: #fff;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+    }
+
+    .btn-maps { background: var(--success); color: #fff; }
+    .btn-maps:hover { background: var(--success-hover); }
+
+    .status {
+      margin-top: 12px;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+    .status.error { color: #dc2626; font-weight: 500; }
+
+    .banner {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+      background: var(--warn-bg);
+      color: var(--warn-text);
+      border: 1px solid var(--warn-border);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .stat-box {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .stat-label { font-size: 0.78rem; color: var(--muted); }
+    .stat-val { font-size: 1.15rem; font-weight: 700; margin-top: 2px; }
+
+    .link-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+      background: #f8fafc;
+    }
+    .link-url {
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 8px 0 10px;
+      background: #fff;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 0.9rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Multi-Stop Route Optimizer</h1>
+      <p class="subtitle">
+        Pick your starting store, upload address screenshots (or type/paste stops), and open the optimal route in Google Maps.
+      </p>
+
+      <!-- Fixed Source Selection -->
+      <div class="source-box">
+        <label for="sourceSelect">Starting Location (Source)</label>
+        <div class="source-row">
+          <select id="sourceSelect"></select>
+          <button id="toggleAddPresetBtn" class="btn-secondary btn-sm" type="button">+ Add Store</button>
+          <button id="deletePresetBtn" class="btn-danger btn-sm hidden" type="button">Remove</button>
+        </div>
+
+        <div id="sourcePreview" class="source-preview"></div>
+
+        <div id="customSourceWrap" class="hidden" style="margin-top: 10px;">
+          <input
+            id="customSourceInput"
+            type="text"
+            placeholder="Enter custom starting address (e.g., 123 Main St, Wheeling, IL)"
+          />
+        </div>
+
+        <div id="addPresetPanel" class="add-preset-panel hidden">
+          <input id="newPresetName" type="text" placeholder="Label (e.g., Target Palatine)" />
+          <input id="newPresetAddr" type="text" placeholder="Full address (e.g., 679 E Dundee Rd, Palatine, IL 60074)" />
+          <button id="savePresetBtn" class="btn-primary btn-sm" type="button">Save Store</button>
+        </div>
+      </div>
+
+      <!-- Multi-Screenshot OCR Upload -->
+      <div class="ocr-box">
+        <div class="ocr-header">
+          <div>
+            <strong style="font-size: 0.94rem;">Scan Addresses from Screenshots</strong>
+            <div style="font-size: 0.82rem; color: var(--muted);">
+              Select one or more screenshots at once — processed locally on your device.
+            </div>
+          </div>
+          <label for="screenshotInput" id="uploadLabel" class="file-btn btn-primary btn-sm" style="margin:0;">
+            📷 Upload Screenshots
+          </label>
+          <input
+            id="screenshotInput"
+            type="file"
+            accept="image/*"
+            multiple
+            class="hidden"
+          />
+        </div>
+
+        <div class="ocr-controls">
+          <label class="checkbox-label">
+            <input type="checkbox" id="replaceOnScan" />
+            Replace existing text box contents (unchecked = append)
+          </label>
+        </div>
+
+        <div id="ocrProgressWrap" class="progress-wrap hidden">
+          <div class="progress-bar-bg">
+            <div id="ocrProgressBar" class="progress-bar-fill"></div>
+          </div>
+          <div id="ocrStatus" class="ocr-status">Preparing scanner...</div>
+        </div>
+
+        <details id="rawOcrDetails" class="raw-ocr hidden">
+          <summary style="cursor:pointer; font-weight:600;">View raw scanned text from screenshots</summary>
+          <pre id="rawOcrOutput"></pre>
+        </details>
+      </div>
+
+      <!-- Semicolon-Separated Destinations -->
+      <label for="addresses">Destination Addresses (separated by <code>;</code> semicolons or new lines)</label>
+      <textarea
+        id="addresses"
+        placeholder="1 N Dunton Ave, Arlington Heights, IL; 250 W Dundee Rd, Buffalo Grove, IL; 200 E Northwest Hwy, Palatine, IL"
+      ></textarea>
+
+      <div class="grid">
+        <div>
+          <label for="goal">Optimize For</label>
+          <select id="goal">
+            <option value="time">Quickest Travel Time</option>
+            <option value="distance">Shortest Distance</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="tripType">Trip Structure</label>
+          <select id="tripType">
+            <option value="round_trip">Round Trip (Return to Source)</option>
+            <option value="open_end">Start at Source → Best Final Stop</option>
+            <option value="fixed_end">Start at Source → End at Last Box Stop</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="maxStopsPerLink">Google Maps Link Limit</label>
+          <select id="maxStopsPerLink">
+            <option value="10">Up to 10 stops / link (Google Maps App)</option>
+            <option value="5">Up to 5 stops / link (Mobile Browser safe)</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="engine">Routing Engine</label>
+          <select id="engine">
+            <option value="auto">Auto (Google API if server running, else Free)</option>
+            <option value="free">Free Mode (OpenStreetMap + OSRM)</option>
+            <option value="google">Google Routes API (requires server.js)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="optimizeBtn" class="btn-primary">Optimize Route</button>
+        <button id="pasteBtn" class="btn-secondary" type="button">Paste</button>
+        <button id="sampleBtn" class="btn-secondary" type="button">Load Sample</button>
+        <button id="clearBtn" class="btn-secondary" type="button">Clear Box</button>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <div id="resultsCard" class="card hidden">
+      <div id="warningBanner" class="banner hidden"></div>
+
+      <div class="stats">
+        <div class="stat-box">
+          <div class="stat-label">Total Est. Driving Time</div>
+          <div id="totalTime" class="stat-val">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Total Distance</div>
+          <div id="totalDist" class="stat-val">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Stops</div>
+          <div id="totalStops" class="stat-val">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Engine &amp; Solver</div>
+          <div id="engineInfo" class="stat-val" style="font-size: 0.9rem;">—</div>
+        </div>
+      </div>
+
+      <h2 style="margin: 0 0 10px; font-size: 1.15rem;">Google Maps Link(s)</h2>
+      <div id="linksContainer"></div>
+
+      <h2 style="margin: 22px 0 6px; font-size: 1.15rem;">Optimized Stop Order</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Address</th>
+            <th>Leg Time</th>
+            <th>Leg Distance</th>
+          </tr>
+        </thead>
+        <tbody id="stopsTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // CONSTANT STARTING STORES (Edit or add more stores directly here)
+    // =========================================================================
+    const DEFAULT_SOURCES = [
+      {
+        id: "target_arlington",
+        name: "Target Arlington",
+        address: "1700 E Rand Rd, Arlington Heights, IL 60004"
+      },
+      {
+        id: "target_wheeling",
+        name: "Target Wheeling",
+        address: "1400 E Lake Cook Rd, Wheeling, IL 60090"
+      }
+    ];
+
+    const STORAGE_CUSTOM_PRESETS = "route_opt_custom_presets_v1";
+    const STORAGE_LAST_SOURCE = "route_opt_last_source_v1";
+
+    const sourceSelect = document.getElementById("sourceSelect");
+    const sourcePreview = document.getElementById("sourcePreview");
+    const customSourceWrap = document.getElementById("customSourceWrap");
+    const customSourceInput = document.getElementById("customSourceInput");
+    const addPresetPanel = document.getElementById("addPresetPanel");
+    const deletePresetBtn = document.getElementById("deletePresetBtn");
+
+    const screenshotInput = document.getElementById("screenshotInput");
+    const uploadLabel = document.getElementById("uploadLabel");
+    const replaceOnScanEl = document.getElementById("replaceOnScan");
+    const ocrProgressWrap = document.getElementById("ocrProgressWrap");
+    const ocrProgressBar = document.getElementById("ocrProgressBar");
+    const ocrStatusEl = document.getElementById("ocrStatus");
+    const rawOcrDetails = document.getElementById("rawOcrDetails");
+    const rawOcrOutput = document.getElementById("rawOcrOutput");
+
+    const addressesEl = document.getElementById("addresses");
+    const goalEl = document.getElementById("goal");
+    const tripTypeEl = document.getElementById("tripType");
+    const maxStopsEl = document.getElementById("maxStopsPerLink");
+    const engineEl = document.getElementById("engine");
+    const optimizeBtn = document.getElementById("optimizeBtn");
+    const statusEl = document.getElementById("status");
+    const resultsCard = document.getElementById("resultsCard");
+    const warningBanner = document.getElementById("warningBanner");
+
+    let serverGoogleReady = false;
+    let isScanning = false;
+
+    // =========================================================================
+    // SOURCE PRESET MANAGEMENT
+    // =========================================================================
+    function getCustomPresets() {
+      try {
+        const raw = localStorage.getItem(STORAGE_CUSTOM_PRESETS);
+        return raw ? JSON.parse(raw) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveCustomPresets(list) {
+      try { localStorage.setItem(STORAGE_CUSTOM_PRESETS, JSON.stringify(list)); } catch (_) {}
+    }
+
+    function getAllSources() {
+      return [...DEFAULT_SOURCES, ...getCustomPresets()];
+    }
+
+    function populateSourceDropdown(selectedId) {
+      const all = getAllSources();
+      sourceSelect.innerHTML = "";
+
+      all.forEach(src => {
+        const opt = document.createElement("option");
+        opt.value = src.id;
+        opt.textContent = src.name;
+        sourceSelect.appendChild(opt);
+      });
+
+      const customOpt = document.createElement("option");
+      customOpt.value = "__custom__";
+      customOpt.textContent = "Custom Starting Address...";
+      sourceSelect.appendChild(customOpt);
+
+      const savedId = selectedId || localStorage.getItem(STORAGE_LAST_SOURCE);
+      if (savedId && [...sourceSelect.options].some(o => o.value === savedId)) {
+        sourceSelect.value = savedId;
+      } else {
+        sourceSelect.value = DEFAULT_SOURCES[0].id;
+      }
+
+      updateSourceUI();
+    }
+
+    function updateSourceUI() {
+      const val = sourceSelect.value;
+      try { localStorage.setItem(STORAGE_LAST_SOURCE, val); } catch (_) {}
+
+      if (val === "__custom__") {
+        customSourceWrap.classList.remove("hidden");
+        sourcePreview.textContent = "Enter any custom starting address below.";
+        deletePresetBtn.classList.add("hidden");
+        return;
+      }
+
+      customSourceWrap.classList.add("hidden");
+      const found = getAllSources().find(s => s.id === val);
+      sourcePreview.textContent = found ? `Address: ${found.address}` : "";
+
+      const isUserAdded = getCustomPresets().some(s => s.id === val);
+      deletePresetBtn.classList.toggle("hidden", !isUserAdded);
+    }
+
+    sourceSelect.addEventListener("change", updateSourceUI);
+
+    document.getElementById("toggleAddPresetBtn").addEventListener("click", () => {
+      addPresetPanel.classList.toggle("hidden");
+    });
+
+    document.getElementById("savePresetBtn").addEventListener("click", () => {
+      const name = document.getElementById("newPresetName").value.trim();
+      const address = document.getElementById("newPresetAddr").value.trim();
+      if (!name || !address) {
+        setStatus("Enter both a store label and full address to save.", true);
+        return;
+      }
+      const list = getCustomPresets();
+      const newId = "custom_" + Date.now();
+      list.push({ id: newId, name, address });
+      saveCustomPresets(list);
+      document.getElementById("newPresetName").value = "";
+      document.getElementById("newPresetAddr").value = "";
+      addPresetPanel.classList.add("hidden");
+      populateSourceDropdown(newId);
+      setStatus(`Saved "${name}" to your presets.`);
+    });
+
+    deletePresetBtn.addEventListener("click", () => {
+      const val = sourceSelect.value;
+      const list = getCustomPresets().filter(s => s.id !== val);
+      saveCustomPresets(list);
+      populateSourceDropdown(DEFAULT_SOURCES[0].id);
+      setStatus("Preset removed.");
+    });
+
+    populateSourceDropdown();
+
+    (async function checkBackend() {
+      if (location.protocol === "file:") return;
+      try {
+        const res = await fetch("/api/health");
+        if (res.ok) {
+          const data = await res.json();
+          serverGoogleReady = Boolean(data.googleConfigured);
+        }
+      } catch (_) {}
+    })();
+
+    // =========================================================================
+    // MULTI-SCREENSHOT OCR + SMART ADDRESS SCRAPER
+    // =========================================================================
+    const US_STATES = new Set([
+      "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+      "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+      "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+      "VA","WA","WV","WI","WY","DC"
+    ]);
+
+    const STREET_SUFFIX =
+      "(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Pl|Place|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Trl|Trail|Hwy|Highway|Pike|Loop|Sq|Square|Run|Pass|Xing|Crossing|Cv|Cove|Path|Walk|Aly|Alley|Vw|View|Pt|Point|Row|Ridge|Rdg|Mnr|Manor|Bnd|Bend|Grn|Green|Hls|Hills|Vly|Valley|Crk|Creek|Brg|Bridge|Expy|Expressway|Fwy|Freeway)";
+
+    const STREET_PART_RE = new RegExp(
+      `\\b(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?|P\\.?O\\.?\\s+Box\\s+\\d+)`,
+      "i"
+    );
+
+    const FULL_ONE_LINE_RE = new RegExp(
+      `((?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?|P\\.?O\\.?\\s+Box\\s+\\d+)(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|#)\\s*[A-Za-z0-9-]+)?(?:,|\\s)+[A-Za-z.'\\-]+(?:\\s+[A-Za-z.'\\-]+){0,3},?\\s+([A-Z]{2})\\s+(\\d{5})(?:-\\d{4})?)`,
+      "gi"
+    );
+
+    const CITY_STATE_ZIP_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/;
+    const CITY_STATE_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),\s+([A-Z]{2})$/;
+    const APT_LINE_RE = /^(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Building|Fl|Floor|#)\s*[A-Za-z0-9-]+$/i;
+
+    screenshotInput.addEventListener("change", async () => {
+      const files = Array.from(screenshotInput.files || []);
+      if (files.length === 0 || isScanning) return;
+
+      if (typeof Tesseract === "undefined") {
+        setStatus("OCR engine failed to load. Check your internet connection and refresh.", true);
+        return;
+      }
+
+      isScanning = true;
+      optimizeBtn.disabled = true;
+      uploadLabel.style.opacity = "0.6";
+      uploadLabel.style.pointerEvents = "none";
+      ocrProgressWrap.classList.remove("hidden");
+      rawOcrDetails.classList.add("hidden");
+      ocrProgressBar.style.width = "5%";
+      ocrStatusEl.textContent = "Loading OCR engine (first time may take a few seconds)...";
+
+      let worker = null;
+      let currentFileIdx = 0;
+      const allExtracted = [];
+      const rawLogs = [];
+
+      try {
+        worker = await Tesseract.createWorker("eng", 1, {
+          logger: m => {
+            if (m.status === "recognizing text" && typeof m.progress === "number") {
+              const overall = ((currentFileIdx + m.progress) / files.length) * 100;
+              ocrProgressBar.style.width = `${Math.max(5, Math.round(overall))}%`;
+              ocrStatusEl.textContent = `Scanning screenshot ${currentFileIdx + 1} of ${files.length} (${Math.round(m.progress * 100)}%)...`;
+            }
+          }
+        });
+
+        for (let i = 0; i < files.length; i++) {
+          currentFileIdx = i;
+          ocrStatusEl.textContent = `Preparing screenshot ${i + 1} of ${files.length}...`;
+
+          const preparedImage = await prepareScreenshotForOcr(files[i]);
+          const { data } = await worker.recognize(preparedImage);
+          const rawText = data.text || "";
+
+          rawLogs.push(`--- Screenshot ${i + 1}: ${files[i].name} ---\n${rawText.trim()}`);
+          const found = extractAddressesFromText(rawText);
+          allExtracted.push(...found);
+        }
+
+        ocrProgressBar.style.width = "100%";
+        rawOcrOutput.textContent = rawLogs.join("\n\n");
+        rawOcrDetails.classList.remove("hidden");
+
+        // Deduplicate while keeping order
+        const uniqueExtracted = [];
+        const seen = new Set();
+        for (const addr of allExtracted) {
+          const key = addr.toLowerCase().replace(/[^a-z0-9]/g, "");
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueExtracted.push(addr);
+          }
+        }
+
+        if (uniqueExtracted.length === 0) {
+          ocrStatusEl.textContent = `Scanned ${files.length} screenshot(s), but no clear street addresses were detected. Check "View raw scanned text" below.`;
+          setStatus("Could not auto-detect addresses from the screenshot(s). Open 'View raw scanned text' to copy them manually.", true);
+        } else {
+          const existing = replaceOnScanEl.checked
+            ? []
+            : addressesEl.value
+                .split(/[;\r\n]+/)
+                .map(s => s.trim())
+                .filter(Boolean);
+
+          const merged = [...existing];
+          const existingKeys = new Set(existing.map(a => a.toLowerCase().replace(/[^a-z0-9]/g, "")));
+          let addedCount = 0;
+
+          for (const addr of uniqueExtracted) {
+            const key = addr.toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (!existingKeys.has(key)) {
+              existingKeys.add(key);
+              merged.push(addr);
+              addedCount++;
+            }
+          }
+
+          addressesEl.value = merged.join("; ");
+          ocrStatusEl.textContent = `Done! Extracted ${uniqueExtracted.length} address(es) from ${files.length} screenshot(s).`;
+          setStatus(`Added ${addedCount} address(es) from screenshots into the destination box.`);
+        }
+      } catch (err) {
+        console.error(err);
+        ocrStatusEl.textContent = "Error scanning screenshots.";
+        setStatus("Failed to scan screenshots: " + (err.message || "Unknown error"), true);
+      } finally {
+        if (worker) {
+          try { await worker.terminate(); } catch (_) {}
+        }
+        screenshotInput.value = "";
+        isScanning = false;
+        optimizeBtn.disabled = false;
+        uploadLabel.style.opacity = "1";
+        uploadLabel.style.pointerEvents = "auto";
+      }
+    });
+
+    // Detects Dark Mode screenshots and inverts colors for much higher OCR accuracy
+    async function prepareScreenshotForOcr(file) {
+      return new Promise(resolve => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          try {
+            const maxDim = 2200;
+            let w = img.naturalWidth;
+            let h = img.naturalHeight;
+            if (w > maxDim || h > maxDim) {
+              const scale = maxDim / Math.max(w, h);
+              w = Math.round(w * scale);
+              h = Math.round(h * scale);
+            }
+
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d", { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, w, h);
+
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const px = imgData.data;
+
+            // Sample pixels to check if screenshot is Dark Mode
+            let lumSum = 0;
+            let samples = 0;
+            const step = Math.max(4, Math.floor(px.length / 4000)) * 4;
+            for (let i = 0; i < px.length; i += step) {
+              lumSum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+              samples++;
+            }
+            const avgLum = lumSum / Math.max(1, samples);
+
+            if (avgLum < 115) {
+              // Invert dark mode image to black-on-white
+              for (let i = 0; i < px.length; i += 4) {
+                px[i] = 255 - px[i];
+                px[i + 1] = 255 - px[i + 1];
+                px[i + 2] = 255 - px[i + 2];
+              }
+              ctx.putImageData(imgData, 0, 0);
+            }
+
+            URL.revokeObjectURL(url);
+            resolve(canvas);
+          } catch {
+            URL.revokeObjectURL(url);
+            resolve(file);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(file);
+        };
+        img.src = url;
+      });
+    }
+
+    function extractAddressesFromText(rawText) {
+      const lines = rawText
+        .split(/\r?\n/)
+        .map(line =>
+          line
+            .replace(/^[•·▪►▸\-*>|📍🏠📦\s]+/, "")
+            .replace(/\s+/g, " ")
+            .trim()
+        )
+        .filter(Boolean);
+
+      const results = [];
+      const usedLines = new Set();
+
+      // Pass 1: Look for full 1-line addresses or multi-line stitched addresses (with City, State ZIP)
+      for (let i = 0; i < lines.length; i++) {
+        if (usedLines.has(i)) continue;
+        const line = lines[i];
+
+        // 1A: Full single-line address inside the line
+        FULL_ONE_LINE_RE.lastIndex = 0;
+        let match;
+        let matchedOneLine = false;
+        while ((match = FULL_ONE_LINE_RE.exec(line)) !== null) {
+          const stateCode = match[2];
+          if (US_STATES.has(stateCode)) {
+            results.push(cleanAddressString(match[1]));
+            usedLines.add(i);
+            matchedOneLine = true;
+          }
+        }
+        if (matchedOneLine) continue;
+
+        // 1B: Street line on line i, followed by City/State/ZIP (or Apt + City/State/ZIP)
+        const streetMatch = line.match(STREET_PART_RE);
+        if (streetMatch) {
+          const streetPart = line.slice(streetMatch.index).trim();
+          const next1 = lines[i + 1] || "";
+          const next2 = lines[i + 2] || "";
+
+          const csz1 = next1.match(CITY_STATE_ZIP_RE) || next1.match(CITY_STATE_RE);
+          if (csz1 && US_STATES.has(csz1[2])) {
+            results.push(cleanAddressString(`${streetPart}, ${next1}`));
+            usedLines.add(i);
+            usedLines.add(i + 1);
+            continue;
+          }
+
+          if (APT_LINE_RE.test(next1)) {
+            const csz2 = next2.match(CITY_STATE_ZIP_RE) || next2.match(CITY_STATE_RE);
+            if (csz2 && US_STATES.has(csz2[2])) {
+              results.push(cleanAddressString(`${streetPart}, ${next1}, ${next2}`));
+              usedLines.add(i);
+              usedLines.add(i + 1);
+              usedLines.add(i + 2);
+              continue;
+            }
+          }
+        }
+      }
+
+      // Pass 2: Street-only lines (in case City/State was cropped out of the screenshot)
+      for (let i = 0; i < lines.length; i++) {
+        if (usedLines.has(i)) continue;
+        const line = lines[i];
+        // Skip obvious time/distance/order noise
+        if (/^\d{1,2}:\d{2}\s*(?:AM|PM)?$/i.test(line)) continue;
+        if (/\b(?:min|mins|hr|hrs|mi|miles|order|qty|items)\b/i.test(line)) continue;
+
+        const streetMatch = line.match(STREET_PART_RE);
+        if (streetMatch) {
+          const streetPart = cleanAddressString(line.slice(streetMatch.index).trim());
+          // Avoid adding if a full address with this exact street was already captured
+          const streetKey = streetPart.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const alreadyHasFull = results.some(r =>
+            r.toLowerCase().replace(/[^a-z0-9]/g, "").includes(streetKey)
+          );
+          if (!alreadyHasFull) {
+            results.push(streetPart);
+          }
+        }
+      }
+
+      return results;
+    }
+
+    function cleanAddressString(addr) {
+      return addr
+        .replace(/\s*,\s*/g, ", ")
+        .replace(/,\s*,+/g, ",")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    // =========================================================================
+    // BUTTONS & ROUTE OPTIMIZATION
+    // =========================================================================
+    document.getElementById("pasteBtn").addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          addressesEl.value = text;
+          setStatus("Pasted addresses from clipboard.");
+        }
+      } catch {
+        setStatus("Long-press inside the destination box and tap Paste.", true);
+      }
+    });
+
+    document.getElementById("sampleBtn").addEventListener("click", () => {
+      addressesEl.value =
+        "1 N Dunton Ave, Arlington Heights, IL; 250 W Dundee Rd, Buffalo Grove, IL; 200 E Northwest Hwy, Palatine, IL; 351 W Dundee Rd, Wheeling, IL";
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      addressesEl.value = "";
+      resultsCard.classList.add("hidden");
+      setStatus("");
+    });
+
+    function getSelectedSource() {
+      const val = sourceSelect.value;
+      if (val === "__custom__") {
+        const addr = customSourceInput.value.trim();
+        return addr ? { label: addr, address: addr } : null;
+      }
+      const found = getAllSources().find(s => s.id === val);
+      return found ? { label: `${found.name} (${found.address})`, address: found.address } : null;
+    }
+
+    optimizeBtn.addEventListener("click", async () => {
+      const source = getSelectedSource();
+      if (!source) {
+        setStatus("Please enter a custom starting address.", true);
+        return;
+      }
+
+      const destAddresses = addressesEl.value
+        .split(/[;\r\n]+/)
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      if (destAddresses.length < 1) {
+        setStatus("Please upload screenshots or enter at least 1 destination address.", true);
+        return;
+      }
+
+      const addresses = [source.address, ...destAddresses];
+
+      optimizeBtn.disabled = true;
+      resultsCard.classList.add("hidden");
+      warningBanner.classList.add("hidden");
+
+      try {
+        const chosenEngine = engineEl.value;
+        const useGoogle =
+          chosenEngine === "google" ||
+          (chosenEngine === "auto" && serverGoogleReady);
+
+        let result;
+        if (useGoogle) {
+          setStatus("Calculating traffic-aware matrix via Google Routes API...");
+          result = await optimizeViaServer(addresses, goalEl.value, tripTypeEl.value);
+        } else {
+          result = await optimizeFreeMode(addresses, goalEl.value, tripTypeEl.value);
+        }
+
+        result.orderedStops.forEach(stop => {
+          stop.displayName = stop.address === source.address ? source.label : stop.address;
+        });
+
+        renderResults(result);
+        setStatus("Route optimized!");
+      } catch (err) {
+        console.error(err);
+        setStatus(err.message || "Failed to optimize route.", true);
+      } finally {
+        optimizeBtn.disabled = false;
+      }
+    });
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.className = isError ? "status error" : "status";
+    }
+
+    async function optimizeViaServer(addresses, goal, tripType) {
+      const res = await fetch("/api/optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresses, goal, tripType })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Google Routes API request failed.");
+      return data;
+    }
+
+    async function optimizeFreeMode(addresses, goal, tripType) {
+      const coords = [];
+      let biasCoord = null;
+
+      for (let i = 0; i < addresses.length; i++) {
+        setStatus(`Locating stop ${i + 1} of ${addresses.length}...`);
+        const pt = await geocodeAddressWithFallback(addresses[i], biasCoord);
+        if (!pt) {
+          throw new Error(`Could not locate address: "${addresses[i]}". Try adding city/state/zip.`);
+        }
+        if (i === 0) biasCoord = pt;
+        coords.push(pt);
+      }
+
+      let durations, distances;
+      let warning = "";
+      let engineLabel = "OSM + OSRM";
+
+      setStatus("Calculating driving distances & travel times...");
+      try {
+        const coordStr = coords.map(c => `${c.lon},${c.lat}`).join(";");
+        const osrmUrl = `https://router.project-osrm.org/table/v1/driving/${coordStr}?annotations=duration,distance`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(osrmUrl, { signal: controller.signal });
+        clearTimeout(timer);
+
+        if (!res.ok) throw new Error("OSRM HTTP " + res.status);
+        const data = await res.json();
+        if (data.code !== "Ok" || !data.durations || !data.distances) {
+          throw new Error("OSRM returned invalid matrix");
+        }
+        durations = data.durations.map(row => row.map(v => (v == null ? Infinity : v)));
+        distances = data.distances.map(row => row.map(v => (v == null ? Infinity : v)));
+      } catch (e) {
+        engineLabel = "OSM + Straight-Line Fallback";
+        warning = "Public OSRM routing server was unavailable or timed out, so straight-line estimates were used for ordering. Google Maps will still compute exact driving directions when you open the link.";
+        const n = coords.length;
+        durations = Array.from({ length: n }, () => Array(n).fill(0));
+        distances = Array.from({ length: n }, () => Array(n).fill(0));
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) {
+            if (i === j) continue;
+            const dMeters = haversineMeters(coords[i], coords[j]);
+            distances[i][j] = dMeters;
+            durations[i][j] = dMeters / 13.4;
+          }
+        }
+      }
+
+      setStatus("Solving optimal stop order...");
+      const costMatrix = goal === "distance" ? distances : durations;
+      const { order, solver } = solveTsp(costMatrix, tripType);
+
+      const orderedStops = order.map((idx, pos) => {
+        const prevIdx = pos > 0 ? order[pos - 1] : null;
+        return {
+          address: addresses[idx],
+          legDurationSec: prevIdx !== null ? durations[prevIdx][idx] : 0,
+          legDistanceMeters: prevIdx !== null ? distances[prevIdx][idx] : 0
+        };
+      });
+
+      const totalDurationSec = orderedStops.reduce((s, x) => s + x.legDurationSec, 0);
+      const totalDistanceMeters = orderedStops.reduce((s, x) => s + x.legDistanceMeters, 0);
+
+      return {
+        orderedStops,
+        totalDurationSec,
+        totalDistanceMeters,
+        engineLabel,
+        solver,
+        warning
+      };
+    }
+
+    async function geocodeAddressWithFallback(query, biasCoord) {
+      let pt = await geocodeAddress(query, biasCoord);
+      if (pt) return pt;
+
+      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
+      const stripped = query
+        .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
+        .replace(/\s*,\s*,/g, ",")
+        .trim();
+      if (stripped && stripped !== query) {
+        pt = await geocodeAddress(stripped, biasCoord);
+      }
+      return pt;
+    }
+
+    async function geocodeAddress(query, biasCoord) {
+      try {
+        let photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`;
+        if (biasCoord) {
+          photonUrl += `&lat=${biasCoord.lat}&lon=${biasCoord.lon}`;
+        }
+        const res = await fetch(photonUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.features && data.features.length > 0) {
+            const [lon, lat] = data.features[0].geometry.coordinates;
+            return { lat, lon };
+          }
+        }
+      } catch (_) {}
+
+      await new Promise(r => setTimeout(r, 1100));
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.length > 0) {
+            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+          }
+        }
+      } catch (_) {}
+
+      return null;
+    }
+
+    function haversineMeters(a, b) {
+      const R = 6371000;
+      const toRad = d => (d * Math.PI) / 180;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lon - a.lon);
+      const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(s));
+    }
+
+    function solveTsp(cost, tripType) {
+      const n = cost.length;
+      if (n === 2) {
+        return {
+          order: tripType === "round_trip" ? [0, 1, 0] : [0, 1],
+          solver: "Exact"
+        };
+      }
+
+      const interior = [];
+      for (let i = 1; i < n; i++) {
+        if (tripType === "fixed_end" && i === n - 1) continue;
+        interior.push(i);
+      }
+
+      const k = interior.length;
+      if (k === 0) return { order: [0, n - 1], solver: "Exact" };
+
+      if (k <= 13) {
+        const numMasks = 1 << k;
+        const dp = new Float64Array(numMasks * k).fill(Infinity);
+        const parent = new Int16Array(numMasks * k).fill(-1);
+
+        for (let j = 0; j < k; j++) dp[(1 << j) * k + j] = cost[0][interior[j]];
+
+        for (let mask = 1; mask < numMasks; mask++) {
+          for (let u = 0; u < k; u++) {
+            if (!(mask & (1 << u))) continue;
+            const cur = dp[mask * k + u];
+            if (cur === Infinity) continue;
+
+            for (let v = 0; v < k; v++) {
+              if (mask & (1 << v)) continue;
+              const nextMask = mask | (1 << v);
+              const cand = cur + cost[interior[u]][interior[v]];
+              const idx = nextMask * k + v;
+              if (cand < dp[idx]) {
+                dp[idx] = cand;
+                parent[idx] = u;
+              }
+            }
+          }
+        }
+
+        const fullMask = numMasks - 1;
+        let bestTotal = Infinity;
+        let lastU = 0;
+        for (let j = 0; j < k; j++) {
+          let total = dp[fullMask * k + j];
+          if (tripType === "round_trip") total += cost[interior[j]][0];
+          if (tripType === "fixed_end") total += cost[interior[j]][n - 1];
+          if (total < bestTotal) {
+            bestTotal = total;
+            lastU = j;
+          }
+        }
+
+        const path = [];
+        let mask = fullMask;
+        let cur = lastU;
+        while (cur !== -1) {
+          path.push(interior[cur]);
+          const prev = parent[mask * k + cur];
+          mask ^= 1 << cur;
+          cur = prev;
+        }
+        path.reverse();
+
+        const order = [0, ...path];
+        if (tripType === "round_trip") order.push(0);
+        if (tripType === "fixed_end") order.push(n - 1);
+        return { order, solver: "Exact (Held-Karp)" };
+      }
+
+      const unvisited = new Set(interior);
+      const route = [0];
+      let curr = 0;
+      while (unvisited.size > 0) {
+        let bestNext = null;
+        let bestCost = Infinity;
+        for (const cand of unvisited) {
+          if (cost[curr][cand] < bestCost) {
+            bestCost = cost[curr][cand];
+            bestNext = cand;
+          }
+        }
+        route.push(bestNext);
+        unvisited.delete(bestNext);
+        curr = bestNext;
+      }
+      if (tripType === "round_trip") route.push(0);
+      if (tripType === "fixed_end") route.push(n - 1);
+
+      const isEndFixed = tripType !== "open_end";
+      const pathCost = r => {
+        let sum = 0;
+        for (let i = 0; i < r.length - 1; i++) sum += cost[r[i]][r[i + 1]];
+        return sum;
+      };
+
+      let improved = true;
+      let bestSum = pathCost(route);
+      while (improved) {
+        improved = false;
+        const maxJ = isEndFixed ? route.length - 2 : route.length - 1;
+        for (let i = 1; i < maxJ; i++) {
+          for (let j = i + 1; j <= maxJ; j++) {
+            const candidate = route.slice();
+            let l = i, r = j;
+            while (l < r) {
+              [candidate[l], candidate[r]] = [candidate[r], candidate[l]];
+              l++;
+              r--;
+            }
+            const candSum = pathCost(candidate);
+            if (candSum + 1e-6 < bestSum) {
+              route.splice(0, route.length, ...candidate);
+              bestSum = candSum;
+              improved = true;
+            }
+          }
+        }
+      }
+
+      return { order: route, solver: "Nearest Neighbor + 2-Opt" };
+    }
+
+    function buildGoogleMapsLinks(orderedAddresses, maxStopsPerLink) {
+      const links = [];
+      let start = 0;
+      while (start < orderedAddresses.length - 1) {
+        const end = Math.min(start + maxStopsPerLink - 1, orderedAddresses.length - 1);
+        const slice = orderedAddresses.slice(start, end + 1);
+        const origin = encodeURIComponent(slice[0]);
+        const destination = encodeURIComponent(slice[slice.length - 1]);
+        const waypoints = slice.slice(1, -1).map(a => encodeURIComponent(a)).join("%7C");
+
+        let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+        if (waypoints) url += `&waypoints=${waypoints}`;
+
+        links.push({
+          legLabel:
+            orderedAddresses.length <= maxStopsPerLink
+              ? "Complete Optimized Route"
+              : `Leg ${links.length + 1} (Stops ${start + 1} → ${end + 1})`,
+          url
+        });
+
+        start = end;
+      }
+      return links;
+    }
+
+    function renderResults(data) {
+      resultsCard.classList.remove("hidden");
+
+      if (data.warning) {
+        warningBanner.textContent = data.warning;
+        warningBanner.classList.remove("hidden");
+      } else {
+        warningBanner.classList.add("hidden");
+      }
+
+      document.getElementById("totalTime").textContent = formatDuration(data.totalDurationSec);
+      document.getElementById("totalDist").textContent = formatDistance(data.totalDistanceMeters);
+      document.getElementById("totalStops").textContent = data.orderedStops.length;
+      document.getElementById("engineInfo").textContent = `${data.engineLabel} · ${data.solver}`;
+
+      const maxStops = parseInt(maxStopsEl.value, 10);
+      const links = buildGoogleMapsLinks(
+        data.orderedStops.map(s => s.address),
+        maxStops
+      );
+
+      const linksContainer = document.getElementById("linksContainer");
+      linksContainer.innerHTML = "";
+      links.forEach(item => {
+        const div = document.createElement("div");
+        div.className = "link-card";
+        div.innerHTML = `
+          <strong>${escapeHtml(item.legLabel)}</strong>
+          <div class="link-url">${escapeHtml(item.url)}</div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <a class="btn-link btn-maps" href="${item.url}" target="_blank" rel="noopener noreferrer">
+              Open in Google Maps ↗
+            </a>
+            <button type="button" class="btn-secondary copy-btn">Copy Link</button>
+          </div>
+        `;
+        div.querySelector(".copy-btn").addEventListener("click", async e => {
+          await navigator.clipboard.writeText(item.url);
+          e.target.textContent = "Copied!";
+          setTimeout(() => (e.target.textContent = "Copy Link"), 1500);
+        });
+        linksContainer.appendChild(div);
+      });
+
+      const tbody = document.getElementById("stopsTableBody");
+      tbody.innerHTML = "";
+      data.orderedStops.forEach((stop, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><strong>${i + 1}</strong></td>
+          <td>${escapeHtml(stop.displayName || stop.address)}</td>
+          <td>${i === 0 ? "Start" : formatDuration(stop.legDurationSec)}</td>
+          <td>${i === 0 ? "—" : formatDistance(stop.legDistanceMeters)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function formatDuration(sec) {
+      const mins = Math.round(sec / 60);
+      if (mins < 60) return `${mins} min`;
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${h}h ${m}m`;
+    }
+
+    function formatDistance(meters) {
+      const miles = meters / 1609.344;
+      const km = meters / 1000;
+      return `${miles.toFixed(1)} mi (${km.toFixed(1)} km)`;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+  </script>
+</body>
+</html>
