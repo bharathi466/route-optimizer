@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Route Optimizer → Google Maps</title>
+  <!-- Browser-based OCR (Tesseract.js v5) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -113,6 +114,7 @@
       .add-preset-panel { grid-template-columns: 1fr; }
     }
 
+    /* Screenshot Upload Panel */
     .ocr-box {
       background: #f0f7ff;
       border: 1.5px dashed #93c5fd;
@@ -144,7 +146,9 @@
       margin: 0;
       cursor: pointer;
     }
-    .progress-wrap { margin-top: 10px; }
+    .progress-wrap {
+      margin-top: 10px;
+    }
     .progress-bar-bg {
       width: 100%;
       height: 8px;
@@ -312,6 +316,7 @@
         Pick your starting store, upload address screenshots (or type/paste stops), and open the optimal route in Google Maps.
       </p>
 
+      <!-- Fixed Source Selection -->
       <div class="source-box">
         <label for="sourceSelect">Starting Location (Source)</label>
         <div class="source-row">
@@ -337,6 +342,7 @@
         </div>
       </div>
 
+      <!-- Multi-Screenshot OCR Upload -->
       <div class="ocr-box">
         <div class="ocr-header">
           <div>
@@ -377,6 +383,7 @@
         </details>
       </div>
 
+      <!-- Semicolon-Separated Destinations -->
       <label for="addresses">Destination Addresses (separated by <code>;</code> semicolons or new lines)</label>
       <textarea
         id="addresses"
@@ -395,8 +402,8 @@
         <div>
           <label for="tripType">Trip Structure</label>
           <select id="tripType">
-            <option value="round_trip">Round Trip (Return to Source)</option>
             <option value="open_end">Start at Source → Best Final Stop</option>
+            <option value="round_trip">Round Trip (Return to Source)</option>
             <option value="fixed_end">Start at Source → End at Last Box Stop</option>
           </select>
         </div>
@@ -470,6 +477,9 @@
   </div>
 
   <script>
+    // =========================================================================
+    // CONSTANT STARTING STORES (Edit or add more stores directly here)
+    // =========================================================================
     const DEFAULT_SOURCES = [
       {
         id: "target_arlington",
@@ -515,6 +525,9 @@
     let serverGoogleReady = false;
     let isScanning = false;
 
+    // =========================================================================
+    // SOURCE PRESET MANAGEMENT
+    // =========================================================================
     function getCustomPresets() {
       try {
         const raw = localStorage.getItem(STORAGE_CUSTOM_PRESETS);
@@ -623,7 +636,7 @@
     })();
 
     // =========================================================================
-    // MULTI-SCREENSHOT OCR + HARDENED ADDRESS SCRAPER
+    // MULTI-SCREENSHOT OCR + SMART ADDRESS SCRAPER
     // =========================================================================
     const US_STATES = new Set([
       "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -635,25 +648,26 @@
     const STREET_SUFFIX =
       "(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Pl|Place|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Trl|Trail|Hwy|Highway|Pike|Loop|Sq|Square|Run|Pass|Xing|Crossing|Cv|Cove|Path|Walk|Aly|Alley|Vw|View|Pt|Point|Row|Ridge|Rdg|Mnr|Manor|Bnd|Bend|Grn|Green|Hls|Hills|Vly|Valley|Crk|Creek|Brg|Bridge|Expy|Expressway|Fwy|Freeway)";
 
-    // Lookahead (?=[A-Za-z0-9.'\-]*[A-Za-z]) ensures the token after the house number
-    // has at least one letter (e.g. "N", "Dryden", "1st") so a stray icon digit like
-    // "7 1425 N Dryden Pl" is skipped and "1425 N Dryden Pl" is matched instead.
     const STREET_CORE =
-      `(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:(?:[NSEW]\\.?\\s+)?(?:Hwy|Highway|Route|Rte)\\s+\\d{1,4}[A-Za-z]?|(?:[NSEW]\\.?\\s+)?(?=[A-Za-z0-9.'\\-]*[A-Za-z])[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?)|P\\.?O\\.?\\s+Box\\s+\\d+)`;
+      `(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+(?:(?:Hwy|Highway)\\s+\\d{1,4}[A-Za-z]?|${STREET_SUFFIX}\\b\\.?)|P\\.?O\\.?\\s+Box\\s+\\d+)`;
 
-    const APT_SUFFIX_OPT = `(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|#)\\s*[A-Za-z0-9-]+)?`;
+    const OPT_DIR_AND_UNIT =
+      `(?:\\s+(?:N|S|E|W|NE|NW|SE|SW)\\b\\.?)?(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Building|Fl|Floor|#)\\s*[A-Za-z0-9-]+)?`;
 
-    const STREET_PART_RE = new RegExp(`\\b(${STREET_CORE}${APT_SUFFIX_OPT})`, "i");
+    const STREET_PART_RE = new RegExp(`\\b${STREET_CORE}${OPT_DIR_AND_UNIT}`, "i");
 
     const FULL_ONE_LINE_RE = new RegExp(
-      `\\b(${STREET_CORE}${APT_SUFFIX_OPT})(?:,|\\s)+(?:[7>|/\\\\»›↗]+\\s+)?([A-Za-z.'\\-]+(?:\\s+[A-Za-z.'\\-]+){0,3}),?\\s+([A-Z]{2})\\s+(\\d{5}(?:-\\d{4})?)`,
+      `(${STREET_CORE}${OPT_DIR_AND_UNIT}(?:,|\\s)+[A-Za-z.'\\-]+(?:\\s+[A-Za-z.'\\-]+){0,3},?\\s+([A-Z]{2})\\s+(\\d{5})(?:-\\d{4})?)`,
       "gi"
     );
 
-    const CITY_STATE_ZIP_RE =
-      /^(?:[7>|/\\»›↗•·*]+\s+)?([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)(?:\s*[7>|/\\»›↗]+)?$/;
-    const CITY_STATE_RE =
-      /^(?:[7>|/\\»›↗•·*]+\s+)?([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),\s+([A-Z]{2})(?:\s*[7>|/\\»›↗]+)?$/;
+    const STRAY_ICON_BEFORE_COMMA_RE = new RegExp(
+      `(\\b${STREET_CORE}${OPT_DIR_AND_UNIT})\\s+(?:[>›»|•*]|7)(?=\\s*,)`,
+      "gi"
+    );
+
+    const CITY_STATE_ZIP_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/;
+    const CITY_STATE_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),\s+([A-Z]{2})$/;
     const APT_LINE_RE = /^(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Building|Fl|Floor|#)\s*[A-Za-z0-9-]+$/i;
 
     screenshotInput.addEventListener("change", async () => {
@@ -719,7 +733,7 @@
 
         if (uniqueExtracted.length === 0) {
           ocrStatusEl.textContent = `Scanned ${files.length} screenshot(s), but no clear street addresses were detected. Check "View raw scanned text" below.`;
-          setStatus("Could not auto-detect addresses from the screenshot(s). Open 'View raw scanned text' to inspect.", true);
+          setStatus("Could not auto-detect addresses from the screenshot(s). Open 'View raw scanned text' to copy them manually.", true);
         } else {
           const existing = replaceOnScanEl.checked
             ? []
@@ -761,25 +775,19 @@
       }
     });
 
-    // Upscales smaller screenshots, converts to high-contrast grayscale, and inverts Dark Mode
     async function prepareScreenshotForOcr(file) {
       return new Promise(resolve => {
         const img = new Image();
         const url = URL.createObjectURL(file);
         img.onload = () => {
           try {
+            const maxDim = 2200;
             let w = img.naturalWidth;
             let h = img.naturalHeight;
-            const maxDim = 2400;
-
-            if (w < 1400 && h < 1400) {
-              const upScale = Math.min(1.6, maxDim / Math.max(w, h));
-              w = Math.round(w * upScale);
-              h = Math.round(h * upScale);
-            } else if (w > maxDim || h > maxDim) {
-              const downScale = maxDim / Math.max(w, h);
-              w = Math.round(w * downScale);
-              h = Math.round(h * downScale);
+            if (w > maxDim || h > maxDim) {
+              const scale = maxDim / Math.max(w, h);
+              w = Math.round(w * scale);
+              h = Math.round(h * scale);
             }
 
             const canvas = document.createElement("canvas");
@@ -798,16 +806,16 @@
               lumSum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
               samples++;
             }
-            const isDarkMode = lumSum / Math.max(1, samples) < 115;
+            const avgLum = lumSum / Math.max(1, samples);
 
-            for (let i = 0; i < px.length; i += 4) {
-              let gray = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-              if (isDarkMode) gray = 255 - gray;
-              // Mild contrast stretch for crisper font edges
-              gray = Math.max(0, Math.min(255, (gray - 128) * 1.25 + 128));
-              px[i] = px[i + 1] = px[i + 2] = gray;
+            if (avgLum < 115) {
+              for (let i = 0; i < px.length; i += 4) {
+                px[i] = 255 - px[i];
+                px[i + 1] = 255 - px[i + 1];
+                px[i + 2] = 255 - px[i + 2];
+              }
+              ctx.putImageData(imgData, 0, 0);
             }
-            ctx.putImageData(imgData, 0, 0);
 
             URL.revokeObjectURL(url);
             resolve(canvas);
@@ -824,18 +832,16 @@
       });
     }
 
-    function normalizeOcrLine(rawLine) {
-      return rawLine
-        .replace(/^[•·▪►▸\-*>|»›↗📍🏠📦\s]+/, "")
-        .replace(/[\s>|»›↗•·*]+$/, "")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
     function extractAddressesFromText(rawText) {
       const lines = rawText
         .split(/\r?\n/)
-        .map(normalizeOcrLine)
+        .map(line =>
+          line
+            .replace(/^[•·▪►▸\-*>|📍🏠📦\s]+/, "")
+            .replace(/[>›»→➔➜•·▪►▸|\s]+$/, "")
+            .replace(/\s+/g, " ")
+            .trim()
+        )
         .filter(Boolean);
 
       const results = [];
@@ -844,37 +850,32 @@
       // Pass 1: Full 1-line addresses or multi-line stitched addresses (with City, State ZIP)
       for (let i = 0; i < lines.length; i++) {
         if (usedLines.has(i)) continue;
-        const line = lines[i];
+        const line = lines[i].replace(STRAY_ICON_BEFORE_COMMA_RE, "$1");
 
+        // 1A: Full single-line address inside the line
         FULL_ONE_LINE_RE.lastIndex = 0;
         let match;
         let matchedOneLine = false;
         while ((match = FULL_ONE_LINE_RE.exec(line)) !== null) {
-          const street = match[1];
-          const city = match[2];
-          const state = match[3];
-          const zip = match[4];
-          if (US_STATES.has(state)) {
-            results.push(cleanAddressString(`${street}, ${city}, ${state} ${zip}`));
+          const stateCode = match[2];
+          if (US_STATES.has(stateCode)) {
+            results.push(cleanAddressString(match[1]));
             usedLines.add(i);
             matchedOneLine = true;
           }
         }
         if (matchedOneLine) continue;
 
+        // 1B: Street line on line i, followed by City/State/ZIP (or Apt + City/State/ZIP)
         const streetMatch = line.match(STREET_PART_RE);
         if (streetMatch) {
-          // Use streetMatch[1] ONLY so any trailing icon artifact like " 7" is excluded
-          const streetPart = streetMatch[1].trim();
+          const streetPart = streetMatch[0].trim();
           const next1 = lines[i + 1] || "";
           const next2 = lines[i + 2] || "";
 
           const csz1 = next1.match(CITY_STATE_ZIP_RE) || next1.match(CITY_STATE_RE);
           if (csz1 && US_STATES.has(csz1[2])) {
-            const cleanCityStateZip = csz1[3]
-              ? `${csz1[1]}, ${csz1[2]} ${csz1[3]}`
-              : `${csz1[1]}, ${csz1[2]}`;
-            results.push(cleanAddressString(`${streetPart}, ${cleanCityStateZip}`));
+            results.push(cleanAddressString(`${streetPart}, ${next1}`));
             usedLines.add(i);
             usedLines.add(i + 1);
             continue;
@@ -883,10 +884,7 @@
           if (APT_LINE_RE.test(next1)) {
             const csz2 = next2.match(CITY_STATE_ZIP_RE) || next2.match(CITY_STATE_RE);
             if (csz2 && US_STATES.has(csz2[2])) {
-              const cleanCityStateZip = csz2[3]
-                ? `${csz2[1]}, ${csz2[2]} ${csz2[3]}`
-                : `${csz2[1]}, ${csz2[2]}`;
-              results.push(cleanAddressString(`${streetPart}, ${next1}, ${cleanCityStateZip}`));
+              results.push(cleanAddressString(`${streetPart}, ${next1}, ${next2}`));
               usedLines.add(i);
               usedLines.add(i + 1);
               usedLines.add(i + 2);
@@ -896,7 +894,7 @@
         }
       }
 
-      // Pass 2: Street-only lines (if City/State was cropped out of the screenshot)
+      // Pass 2: Street-only lines (in case City/State was cropped out of the screenshot)
       for (let i = 0; i < lines.length; i++) {
         if (usedLines.has(i)) continue;
         const line = lines[i];
@@ -905,7 +903,7 @@
 
         const streetMatch = line.match(STREET_PART_RE);
         if (streetMatch) {
-          const streetPart = cleanAddressString(streetMatch[1].trim());
+          const streetPart = cleanAddressString(streetMatch[0].trim());
           const streetKey = streetPart.toLowerCase().replace(/[^a-z0-9]/g, "");
           const alreadyHasFull = results.some(r =>
             r.toLowerCase().replace(/[^a-z0-9]/g, "").includes(streetKey)
@@ -944,7 +942,7 @@
 
     document.getElementById("sampleBtn").addEventListener("click", () => {
       addressesEl.value =
-        "1 N Dunton Ave, Arlington Heights, IL; 250 W Dundee Rd, Buffalo Grove, IL; 200 E Northwest Hwy, Palatine, IL; 351 W Dundee Rd, Wheeling, IL";
+        "2580 Forest Glen Trl, Riverwoods, IL 60015; 1260 Anthony Ln, Deerfield, IL 60015; 910 E Appletree Ln, Arlington Heights, IL 60004; 63 E Wilmette Ave, Palatine, IL 60067";
     });
 
     document.getElementById("clearBtn").addEventListener("click", () => {
@@ -1110,6 +1108,7 @@
       let pt = await geocodeAddress(query, biasCoord);
       if (pt) return pt;
 
+      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
       const stripped = query
         .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
         .replace(/\s*,\s*,/g, ",")
@@ -1121,35 +1120,62 @@
     }
 
     async function geocodeAddress(query, biasCoord) {
+      const zipMatch = query.match(/\b(\d{5})(?:-\d{4})?\b/);
+      const expectedZip = zipMatch ? zipMatch[1] : null;
+      const parts = query.split(",").map(s => s.trim()).filter(Boolean);
+      const expectedCity = parts.length >= 2 ? parts[parts.length - 2].toLowerCase() : null;
+
+      let fallbackPhoton = null;
+
       try {
-        let photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=1`;
+        let photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`;
         if (biasCoord) {
           photonUrl += `&lat=${biasCoord.lat}&lon=${biasCoord.lon}`;
         }
         const res = await fetch(photonUrl);
         if (res.ok) {
           const data = await res.json();
-          if (data.features && data.features.length > 0) {
-            const [lon, lat] = data.features[0].geometry.coordinates;
-            return { lat, lon };
+          const features = data.features || [];
+
+          for (const f of features) {
+            const [lon, lat] = f.geometry.coordinates;
+            const p = f.properties || {};
+            const pt = { lat, lon };
+
+            if (biasCoord && haversineMeters(biasCoord, pt) > 150000) continue;
+
+            if (!fallbackPhoton) fallbackPhoton = pt;
+
+            const hasStreet = Boolean(p.street || p.housenumber);
+            const zipOk = !expectedZip || !p.postcode || p.postcode === expectedZip;
+            const cityVal = (p.city || p.town || p.village || p.locality || "").toLowerCase();
+            const cityOk = !expectedCity || !cityVal || cityVal.includes(expectedCity) || expectedCity.includes(cityVal);
+
+            if (hasStreet && zipOk && cityOk) {
+              return pt;
+            }
           }
         }
       } catch (_) {}
 
+      // Fallback to stricter Nominatim geocoder if Photon lacked an exact street/ZIP match
       await new Promise(r => setTimeout(r, 1100));
       try {
         const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`
         );
         if (res.ok) {
           const data = await res.json();
           if (data.length > 0) {
-            return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+            const pt = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+            if (!biasCoord || haversineMeters(biasCoord, pt) <= 150000) {
+              return pt;
+            }
           }
         }
       } catch (_) {}
 
-      return null;
+      return fallbackPhoton;
     }
 
     function haversineMeters(a, b) {
@@ -1180,6 +1206,29 @@
 
       const k = interior.length;
       if (k === 0) return { order: [0, n - 1], solver: "Exact" };
+
+      const pathCost = r => {
+        let sum = 0;
+        for (let i = 0; i < r.length - 1; i++) sum += cost[r[i]][r[i + 1]];
+        return sum;
+      };
+
+      // For Round Trips: if forward & reverse loop directions are within 2%,
+      // pick the direction whose first stop is closer to the starting location.
+      const preferCloserFirstIfRoundTrip = order => {
+        if (tripType !== "round_trip" || order.length < 4) return order;
+        const firstStop = order[1];
+        const lastStop = order[order.length - 2];
+        if (cost[0][lastStop] < cost[0][firstStop]) {
+          const reversed = [0, ...order.slice(1, -1).reverse(), 0];
+          const fwdCost = pathCost(order);
+          const revCost = pathCost(reversed);
+          if (revCost <= fwdCost * 1.02) {
+            return reversed;
+          }
+        }
+        return order;
+      };
 
       if (k <= 13) {
         const numMasks = 1 << k;
@@ -1231,9 +1280,10 @@
         }
         path.reverse();
 
-        const order = [0, ...path];
+        let order = [0, ...path];
         if (tripType === "round_trip") order.push(0);
         if (tripType === "fixed_end") order.push(n - 1);
+        order = preferCloserFirstIfRoundTrip(order);
         return { order, solver: "Exact (Held-Karp)" };
       }
 
@@ -1257,12 +1307,6 @@
       if (tripType === "fixed_end") route.push(n - 1);
 
       const isEndFixed = tripType !== "open_end";
-      const pathCost = r => {
-        let sum = 0;
-        for (let i = 0; i < r.length - 1; i++) sum += cost[r[i]][r[i + 1]];
-        return sum;
-      };
-
       let improved = true;
       let bestSum = pathCost(route);
       while (improved) {
@@ -1287,7 +1331,10 @@
         }
       }
 
-      return { order: route, solver: "Nearest Neighbor + 2-Opt" };
+      return {
+        order: preferCloserFirstIfRoundTrip(route),
+        solver: "Nearest Neighbor + 2-Opt"
+      };
     }
 
     function buildGoogleMapsLinks(orderedAddresses, maxStopsPerLink) {
