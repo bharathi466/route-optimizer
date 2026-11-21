@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Route Optimizer → Google Maps</title>
-  <!-- Browser-based OCR (Tesseract.js v5) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -114,7 +113,6 @@
       .add-preset-panel { grid-template-columns: 1fr; }
     }
 
-    /* Screenshot Upload Panel */
     .ocr-box {
       background: #f0f7ff;
       border: 1.5px dashed #93c5fd;
@@ -146,9 +144,7 @@
       margin: 0;
       cursor: pointer;
     }
-    .progress-wrap {
-      margin-top: 10px;
-    }
+    .progress-wrap { margin-top: 10px; }
     .progress-bar-bg {
       width: 100%;
       height: 8px;
@@ -316,7 +312,6 @@
         Pick your starting store, upload address screenshots (or type/paste stops), and open the optimal route in Google Maps.
       </p>
 
-      <!-- Fixed Source Selection -->
       <div class="source-box">
         <label for="sourceSelect">Starting Location (Source)</label>
         <div class="source-row">
@@ -342,7 +337,6 @@
         </div>
       </div>
 
-      <!-- Multi-Screenshot OCR Upload -->
       <div class="ocr-box">
         <div class="ocr-header">
           <div>
@@ -383,7 +377,6 @@
         </details>
       </div>
 
-      <!-- Semicolon-Separated Destinations -->
       <label for="addresses">Destination Addresses (separated by <code>;</code> semicolons or new lines)</label>
       <textarea
         id="addresses"
@@ -477,9 +470,6 @@
   </div>
 
   <script>
-    // =========================================================================
-    // CONSTANT STARTING STORES (Edit or add more stores directly here)
-    // =========================================================================
     const DEFAULT_SOURCES = [
       {
         id: "target_arlington",
@@ -525,9 +515,6 @@
     let serverGoogleReady = false;
     let isScanning = false;
 
-    // =========================================================================
-    // SOURCE PRESET MANAGEMENT
-    // =========================================================================
     function getCustomPresets() {
       try {
         const raw = localStorage.getItem(STORAGE_CUSTOM_PRESETS);
@@ -636,7 +623,7 @@
     })();
 
     // =========================================================================
-    // MULTI-SCREENSHOT OCR + SMART ADDRESS SCRAPER
+    // MULTI-SCREENSHOT OCR + HARDENED ADDRESS SCRAPER
     // =========================================================================
     const US_STATES = new Set([
       "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -648,18 +635,25 @@
     const STREET_SUFFIX =
       "(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Pl|Place|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Trl|Trail|Hwy|Highway|Pike|Loop|Sq|Square|Run|Pass|Xing|Crossing|Cv|Cove|Path|Walk|Aly|Alley|Vw|View|Pt|Point|Row|Ridge|Rdg|Mnr|Manor|Bnd|Bend|Grn|Green|Hls|Hills|Vly|Valley|Crk|Creek|Brg|Bridge|Expy|Expressway|Fwy|Freeway)";
 
-    const STREET_PART_RE = new RegExp(
-      `\\b(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?|P\\.?O\\.?\\s+Box\\s+\\d+)`,
-      "i"
-    );
+    // Lookahead (?=[A-Za-z0-9.'\-]*[A-Za-z]) ensures the token after the house number
+    // has at least one letter (e.g. "N", "Dryden", "1st") so a stray icon digit like
+    // "7 1425 N Dryden Pl" is skipped and "1425 N Dryden Pl" is matched instead.
+    const STREET_CORE =
+      `(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:(?:[NSEW]\\.?\\s+)?(?:Hwy|Highway|Route|Rte)\\s+\\d{1,4}[A-Za-z]?|(?:[NSEW]\\.?\\s+)?(?=[A-Za-z0-9.'\\-]*[A-Za-z])[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?)|P\\.?O\\.?\\s+Box\\s+\\d+)`;
+
+    const APT_SUFFIX_OPT = `(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|#)\\s*[A-Za-z0-9-]+)?`;
+
+    const STREET_PART_RE = new RegExp(`\\b(${STREET_CORE}${APT_SUFFIX_OPT})`, "i");
 
     const FULL_ONE_LINE_RE = new RegExp(
-      `((?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+${STREET_SUFFIX}\\b\\.?|P\\.?O\\.?\\s+Box\\s+\\d+)(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|#)\\s*[A-Za-z0-9-]+)?(?:,|\\s)+[A-Za-z.'\\-]+(?:\\s+[A-Za-z.'\\-]+){0,3},?\\s+([A-Z]{2})\\s+(\\d{5})(?:-\\d{4})?)`,
+      `\\b(${STREET_CORE}${APT_SUFFIX_OPT})(?:,|\\s)+(?:[7>|/\\\\»›↗]+\\s+)?([A-Za-z.'\\-]+(?:\\s+[A-Za-z.'\\-]+){0,3}),?\\s+([A-Z]{2})\\s+(\\d{5}(?:-\\d{4})?)`,
       "gi"
     );
 
-    const CITY_STATE_ZIP_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/;
-    const CITY_STATE_RE = /^([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),\s+([A-Z]{2})$/;
+    const CITY_STATE_ZIP_RE =
+      /^(?:[7>|/\\»›↗•·*]+\s+)?([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),?\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)(?:\s*[7>|/\\»›↗]+)?$/;
+    const CITY_STATE_RE =
+      /^(?:[7>|/\\»›↗•·*]+\s+)?([A-Za-z][A-Za-z.'\-]*(?:\s+[A-Za-z][A-Za-z.'\-]*){0,3}),\s+([A-Z]{2})(?:\s*[7>|/\\»›↗]+)?$/;
     const APT_LINE_RE = /^(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Building|Fl|Floor|#)\s*[A-Za-z0-9-]+$/i;
 
     screenshotInput.addEventListener("change", async () => {
@@ -713,7 +707,6 @@
         rawOcrOutput.textContent = rawLogs.join("\n\n");
         rawOcrDetails.classList.remove("hidden");
 
-        // Deduplicate while keeping order
         const uniqueExtracted = [];
         const seen = new Set();
         for (const addr of allExtracted) {
@@ -726,7 +719,7 @@
 
         if (uniqueExtracted.length === 0) {
           ocrStatusEl.textContent = `Scanned ${files.length} screenshot(s), but no clear street addresses were detected. Check "View raw scanned text" below.`;
-          setStatus("Could not auto-detect addresses from the screenshot(s). Open 'View raw scanned text' to copy them manually.", true);
+          setStatus("Could not auto-detect addresses from the screenshot(s). Open 'View raw scanned text' to inspect.", true);
         } else {
           const existing = replaceOnScanEl.checked
             ? []
@@ -768,20 +761,25 @@
       }
     });
 
-    // Detects Dark Mode screenshots and inverts colors for much higher OCR accuracy
+    // Upscales smaller screenshots, converts to high-contrast grayscale, and inverts Dark Mode
     async function prepareScreenshotForOcr(file) {
       return new Promise(resolve => {
         const img = new Image();
         const url = URL.createObjectURL(file);
         img.onload = () => {
           try {
-            const maxDim = 2200;
             let w = img.naturalWidth;
             let h = img.naturalHeight;
-            if (w > maxDim || h > maxDim) {
-              const scale = maxDim / Math.max(w, h);
-              w = Math.round(w * scale);
-              h = Math.round(h * scale);
+            const maxDim = 2400;
+
+            if (w < 1400 && h < 1400) {
+              const upScale = Math.min(1.6, maxDim / Math.max(w, h));
+              w = Math.round(w * upScale);
+              h = Math.round(h * upScale);
+            } else if (w > maxDim || h > maxDim) {
+              const downScale = maxDim / Math.max(w, h);
+              w = Math.round(w * downScale);
+              h = Math.round(h * downScale);
             }
 
             const canvas = document.createElement("canvas");
@@ -793,7 +791,6 @@
             const imgData = ctx.getImageData(0, 0, w, h);
             const px = imgData.data;
 
-            // Sample pixels to check if screenshot is Dark Mode
             let lumSum = 0;
             let samples = 0;
             const step = Math.max(4, Math.floor(px.length / 4000)) * 4;
@@ -801,17 +798,16 @@
               lumSum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
               samples++;
             }
-            const avgLum = lumSum / Math.max(1, samples);
+            const isDarkMode = lumSum / Math.max(1, samples) < 115;
 
-            if (avgLum < 115) {
-              // Invert dark mode image to black-on-white
-              for (let i = 0; i < px.length; i += 4) {
-                px[i] = 255 - px[i];
-                px[i + 1] = 255 - px[i + 1];
-                px[i + 2] = 255 - px[i + 2];
-              }
-              ctx.putImageData(imgData, 0, 0);
+            for (let i = 0; i < px.length; i += 4) {
+              let gray = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+              if (isDarkMode) gray = 255 - gray;
+              // Mild contrast stretch for crisper font edges
+              gray = Math.max(0, Math.min(255, (gray - 128) * 1.25 + 128));
+              px[i] = px[i + 1] = px[i + 2] = gray;
             }
+            ctx.putImageData(imgData, 0, 0);
 
             URL.revokeObjectURL(url);
             resolve(canvas);
@@ -828,49 +824,57 @@
       });
     }
 
+    function normalizeOcrLine(rawLine) {
+      return rawLine
+        .replace(/^[•·▪►▸\-*>|»›↗📍🏠📦\s]+/, "")
+        .replace(/[\s>|»›↗•·*]+$/, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     function extractAddressesFromText(rawText) {
       const lines = rawText
         .split(/\r?\n/)
-        .map(line =>
-          line
-            .replace(/^[•·▪►▸\-*>|📍🏠📦\s]+/, "")
-            .replace(/\s+/g, " ")
-            .trim()
-        )
+        .map(normalizeOcrLine)
         .filter(Boolean);
 
       const results = [];
       const usedLines = new Set();
 
-      // Pass 1: Look for full 1-line addresses or multi-line stitched addresses (with City, State ZIP)
+      // Pass 1: Full 1-line addresses or multi-line stitched addresses (with City, State ZIP)
       for (let i = 0; i < lines.length; i++) {
         if (usedLines.has(i)) continue;
         const line = lines[i];
 
-        // 1A: Full single-line address inside the line
         FULL_ONE_LINE_RE.lastIndex = 0;
         let match;
         let matchedOneLine = false;
         while ((match = FULL_ONE_LINE_RE.exec(line)) !== null) {
-          const stateCode = match[2];
-          if (US_STATES.has(stateCode)) {
-            results.push(cleanAddressString(match[1]));
+          const street = match[1];
+          const city = match[2];
+          const state = match[3];
+          const zip = match[4];
+          if (US_STATES.has(state)) {
+            results.push(cleanAddressString(`${street}, ${city}, ${state} ${zip}`));
             usedLines.add(i);
             matchedOneLine = true;
           }
         }
         if (matchedOneLine) continue;
 
-        // 1B: Street line on line i, followed by City/State/ZIP (or Apt + City/State/ZIP)
         const streetMatch = line.match(STREET_PART_RE);
         if (streetMatch) {
-          const streetPart = line.slice(streetMatch.index).trim();
+          // Use streetMatch[1] ONLY so any trailing icon artifact like " 7" is excluded
+          const streetPart = streetMatch[1].trim();
           const next1 = lines[i + 1] || "";
           const next2 = lines[i + 2] || "";
 
           const csz1 = next1.match(CITY_STATE_ZIP_RE) || next1.match(CITY_STATE_RE);
           if (csz1 && US_STATES.has(csz1[2])) {
-            results.push(cleanAddressString(`${streetPart}, ${next1}`));
+            const cleanCityStateZip = csz1[3]
+              ? `${csz1[1]}, ${csz1[2]} ${csz1[3]}`
+              : `${csz1[1]}, ${csz1[2]}`;
+            results.push(cleanAddressString(`${streetPart}, ${cleanCityStateZip}`));
             usedLines.add(i);
             usedLines.add(i + 1);
             continue;
@@ -879,7 +883,10 @@
           if (APT_LINE_RE.test(next1)) {
             const csz2 = next2.match(CITY_STATE_ZIP_RE) || next2.match(CITY_STATE_RE);
             if (csz2 && US_STATES.has(csz2[2])) {
-              results.push(cleanAddressString(`${streetPart}, ${next1}, ${next2}`));
+              const cleanCityStateZip = csz2[3]
+                ? `${csz2[1]}, ${csz2[2]} ${csz2[3]}`
+                : `${csz2[1]}, ${csz2[2]}`;
+              results.push(cleanAddressString(`${streetPart}, ${next1}, ${cleanCityStateZip}`));
               usedLines.add(i);
               usedLines.add(i + 1);
               usedLines.add(i + 2);
@@ -889,18 +896,16 @@
         }
       }
 
-      // Pass 2: Street-only lines (in case City/State was cropped out of the screenshot)
+      // Pass 2: Street-only lines (if City/State was cropped out of the screenshot)
       for (let i = 0; i < lines.length; i++) {
         if (usedLines.has(i)) continue;
         const line = lines[i];
-        // Skip obvious time/distance/order noise
         if (/^\d{1,2}:\d{2}\s*(?:AM|PM)?$/i.test(line)) continue;
         if (/\b(?:min|mins|hr|hrs|mi|miles|order|qty|items)\b/i.test(line)) continue;
 
         const streetMatch = line.match(STREET_PART_RE);
         if (streetMatch) {
-          const streetPart = cleanAddressString(line.slice(streetMatch.index).trim());
-          // Avoid adding if a full address with this exact street was already captured
+          const streetPart = cleanAddressString(streetMatch[1].trim());
           const streetKey = streetPart.toLowerCase().replace(/[^a-z0-9]/g, "");
           const alreadyHasFull = results.some(r =>
             r.toLowerCase().replace(/[^a-z0-9]/g, "").includes(streetKey)
@@ -1105,7 +1110,6 @@
       let pt = await geocodeAddress(query, biasCoord);
       if (pt) return pt;
 
-      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
       const stripped = query
         .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
         .replace(/\s*,\s*,/g, ",")
