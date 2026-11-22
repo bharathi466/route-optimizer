@@ -70,12 +70,6 @@
       background: #fff;
     }
 
-    select:disabled {
-      background: #f1f5f9;
-      color: var(--muted);
-      cursor: not-allowed;
-    }
-
     textarea {
       min-height: 145px;
       resize: vertical;
@@ -145,28 +139,12 @@
     .checkbox-label {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       font-weight: 500;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       color: var(--text);
       margin: 0;
       cursor: pointer;
-    }
-    .home-toggle-box {
-      margin-top: 12px;
-      padding: 11px 14px;
-      background: #f8fafc;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .home-toggle-box .checkbox-label {
-      font-weight: 600;
-      font-size: 0.92rem;
     }
     .progress-wrap {
       margin-top: 10px;
@@ -333,7 +311,10 @@
 <body>
   <div class="container">
     <div class="card">
-      <h1>Multi-Stop Route Optimizer</h1>
+      <h1>
+        Multi-Stop Route Optimizer
+        <small style="font-size: 0.75rem; color: var(--muted); font-weight: 500;">v2.3</small>
+      </h1>
       <p class="subtitle">
         Pick your starting store, upload address screenshots (or type/paste stops), and open the optimal route in Google Maps.
       </p>
@@ -358,8 +339,8 @@
         </div>
 
         <div id="addPresetPanel" class="add-preset-panel hidden">
-          <input id="newPresetName" type="text" placeholder="Label (e.g., Target Palatine)" />
-          <input id="newPresetAddr" type="text" placeholder="Full address (e.g., 679 E Dundee Rd, Palatine, IL 60074)" />
+          <input id="newPresetName" type="text" placeholder="Label (e.g., Target Vernon Hills)" />
+          <input id="newPresetAddr" type="text" placeholder="Full address (e.g., 313 E Townline Rd, Vernon Hills, IL 60061)" />
           <button id="savePresetBtn" class="btn-primary btn-sm" type="button">Save Store</button>
         </div>
       </div>
@@ -409,19 +390,8 @@
       <label for="addresses">Destination Addresses (separated by <code>;</code> semicolons or new lines)</label>
       <textarea
         id="addresses"
-        placeholder="1 N Dunton Ave, Arlington Heights, IL; 250 W Dundee Rd, Buffalo Grove, IL; 200 E Northwest Hwy, Palatine, IL"
+        placeholder="1418 E Northwest Hwy, Arlington Heights, IL 60004; 734 S Belmont Ave, Arlington Heights, IL 60005"
       ></textarea>
-
-      <!-- Internal Home Destination Checkbox -->
-      <div class="home-toggle-box">
-        <label class="checkbox-label" for="includeHomeCheckbox">
-          <input type="checkbox" id="includeHomeCheckbox" />
-          🏠 End route at Home (final destination)
-        </label>
-        <span id="homeTripNote" class="hidden" style="font-size: 0.82rem; color: var(--primary); font-weight: 600;">
-          All stops above will optimize to finish at Home
-        </span>
-      </div>
 
       <div class="grid">
         <div>
@@ -511,11 +481,6 @@
 
   <script>
     // =========================================================================
-    // INTERNAL HOME ADDRESS (Kept hidden from screen display)
-    // =========================================================================
-    const HOME_ADDRESS = "901 Corey Lane, Wheeling, IL 60090";
-
-    // =========================================================================
     // CONSTANT STARTING STORES (Edit or add more stores directly here)
     // =========================================================================
     const DEFAULT_SOURCES = [
@@ -528,6 +493,11 @@
         id: "target_wheeling",
         name: "Target Wheeling",
         address: "1400 E Lake Cook Rd, Wheeling, IL 60090"
+      },
+      {
+        id: "target_palatine",
+        name: "Target Palatine",
+        address: "679 E Dundee Rd, Palatine, IL 60074"
       }
     ];
 
@@ -551,8 +521,6 @@
     const rawOcrOutput = document.getElementById("rawOcrOutput");
 
     const addressesEl = document.getElementById("addresses");
-    const includeHomeCheckbox = document.getElementById("includeHomeCheckbox");
-    const homeTripNote = document.getElementById("homeTripNote");
     const goalEl = document.getElementById("goal");
     const tripTypeEl = document.getElementById("tripType");
     const maxStopsEl = document.getElementById("maxStopsPerLink");
@@ -564,12 +532,6 @@
 
     let serverGoogleReady = false;
     let isScanning = false;
-
-    includeHomeCheckbox.addEventListener("change", () => {
-      const checked = includeHomeCheckbox.checked;
-      tripTypeEl.disabled = checked;
-      homeTripNote.classList.toggle("hidden", !checked);
-    });
 
     // =========================================================================
     // SOURCE PRESET MANAGEMENT
@@ -694,8 +656,14 @@
     const STREET_SUFFIX =
       "(?:St|Street|Ave|Avenue|Rd|Road|Dr|Drive|Ln|Lane|Blvd|Boulevard|Ct|Court|Pl|Place|Way|Pkwy|Parkway|Cir|Circle|Ter|Terrace|Trl|Trail|Hwy|Highway|Pike|Loop|Sq|Square|Run|Pass|Xing|Crossing|Cv|Cove|Path|Walk|Aly|Alley|Vw|View|Pt|Point|Row|Ridge|Rdg|Mnr|Manor|Bnd|Bend|Grn|Green|Hls|Hills|Vly|Valley|Crk|Creek|Brg|Bridge|Expy|Expressway|Fwy|Freeway)";
 
+    const HWY_WITH_NUM =
+      `(?:(?:US|U\\.?S\\.?|State|County|Co|SR|CR)\\s+(?:Hwy|Highway)\\s+\\d{1,4}[A-Za-z]?|(?:Hwy|Highway)\\s+\\d{2,4}[A-Za-z]?)`;
+
+    const DIRECT_HWY_WITH_NUM =
+      `\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?(?:Hwy|Highway)\\s+\\d{1,4}[A-Za-z]?`;
+
     const STREET_CORE =
-      `(?:\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+(?:(?:Hwy|Highway)\\s+\\d{1,4}[A-Za-z]?|${STREET_SUFFIX}\\b\\.?)|P\\.?O\\.?\\s+Box\\s+\\d+)`;
+      `(?:${DIRECT_HWY_WITH_NUM}|\\d{1,6}(?:-\\d{1,4})?\\s+(?:[NSEW]\\.?\\s+)?[A-Za-z0-9.'\\-]+(?:\\s+[A-Za-z0-9.'\\-]+){0,4}\\s+(?:${HWY_WITH_NUM}|${STREET_SUFFIX}\\b\\.?)|P\\.?O\\.?\\s+Box\\s+\\d+)`;
 
     const OPT_DIR_AND_UNIT =
       `(?:\\s+(?:N|S|E|W|NE|NW|SE|SW)\\b\\.?)?(?:,?\\s*(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Building|Fl|Floor|#)\\s*[A-Za-z0-9-]+)?`;
@@ -1019,18 +987,12 @@
         .map(s => s.trim())
         .filter(Boolean);
 
-      const includeHome = includeHomeCheckbox.checked;
-
-      if (destAddresses.length < 1 && !includeHome) {
-        setStatus("Please upload screenshots, enter destination addresses, or check End at Home.", true);
+      if (destAddresses.length < 1) {
+        setStatus("Please upload screenshots or enter at least 1 destination address.", true);
         return;
       }
 
-      const addresses = includeHome
-        ? [source.address, ...destAddresses, HOME_ADDRESS]
-        : [source.address, ...destAddresses];
-
-      const effectiveTripType = includeHome ? "fixed_end" : tripTypeEl.value;
+      const addresses = [source.address, ...destAddresses];
 
       optimizeBtn.disabled = true;
       resultsCard.classList.add("hidden");
@@ -1045,22 +1007,16 @@
         let result;
         if (useGoogle) {
           setStatus("Calculating traffic-aware matrix via Google Routes API...");
-          result = await optimizeViaServer(addresses, goalEl.value, effectiveTripType);
+          result = await optimizeViaServer(addresses, goalEl.value, tripTypeEl.value);
         } else {
-          result = await optimizeFreeMode(addresses, goalEl.value, effectiveTripType);
+          result = await optimizeFreeMode(addresses, goalEl.value, tripTypeEl.value);
         }
 
-        result.orderedStops.forEach((stop, idx) => {
-          if (stop.address === source.address) {
-            stop.displayName = source.label;
-          } else if (includeHome && idx === result.orderedStops.length - 1 && stop.address === HOME_ADDRESS) {
-            stop.displayName = "Home";
-          } else {
-            stop.displayName = stop.address;
-          }
+        result.orderedStops.forEach(stop => {
+          stop.displayName = stop.address === source.address ? source.label : stop.address;
         });
 
-        renderResults(result, includeHome);
+        renderResults(result);
         setStatus("Route optimized!");
       } catch (err) {
         console.error(err);
@@ -1091,8 +1047,7 @@
       let biasCoord = null;
 
       for (let i = 0; i < addresses.length; i++) {
-        const labelForStatus = addresses[i] === HOME_ADDRESS ? "Home" : `stop ${i + 1}`;
-        setStatus(`Locating ${labelForStatus} (${i + 1} of ${addresses.length})...`);
+        setStatus(`Locating stop ${i + 1} of ${addresses.length}...`);
         const pt = await geocodeAddressWithFallback(addresses[i], biasCoord);
         if (!pt) {
           throw new Error(`Could not locate address: "${addresses[i]}". Try adding city/state/zip.`);
@@ -1167,6 +1122,7 @@
       let pt = await geocodeAddress(query, biasCoord);
       if (pt) return pt;
 
+      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
       const stripped = query
         .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
         .replace(/\s*,\s*,/g, ",")
@@ -1216,6 +1172,7 @@
         }
       } catch (_) {}
 
+      // Fallback to stricter Nominatim geocoder if Photon lacked an exact street/ZIP match
       await new Promise(r => setTimeout(r, 1100));
       try {
         const res = await fetch(
@@ -1270,6 +1227,8 @@
         return sum;
       };
 
+      // For Round Trips: if forward & reverse loop directions are within 2%,
+      // pick the direction whose first stop is closer to the starting location.
       const preferCloserFirstIfRoundTrip = order => {
         if (tripType !== "round_trip" || order.length < 4) return order;
         const firstStop = order[1];
@@ -1418,7 +1377,7 @@
       return links;
     }
 
-    function renderResults(data, includeHome) {
+    function renderResults(data) {
       resultsCard.classList.remove("hidden");
 
       if (data.warning) {
@@ -1439,19 +1398,14 @@
         maxStops
       );
 
-      const encodedHome = encodeURIComponent(HOME_ADDRESS);
       const linksContainer = document.getElementById("linksContainer");
       linksContainer.innerHTML = "";
       links.forEach(item => {
-        const displayUrl = includeHome
-          ? item.url.split(encodedHome).join("[Home]")
-          : item.url;
-
         const div = document.createElement("div");
         div.className = "link-card";
         div.innerHTML = `
           <strong>${escapeHtml(item.legLabel)}</strong>
-          <div class="link-url">${escapeHtml(displayUrl)}</div>
+          <div class="link-url">${escapeHtml(item.url)}</div>
           <div style="display:flex; gap:10px; flex-wrap:wrap;">
             <a class="btn-link btn-maps" href="${item.url}" target="_blank" rel="noopener noreferrer">
               Open in Google Maps ↗
