@@ -267,6 +267,15 @@
     .stat-label { font-size: 0.78rem; color: var(--muted); }
     .stat-val { font-size: 1.15rem; font-weight: 700; margin-top: 2px; }
 
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
     .link-card {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -313,10 +322,10 @@
     <div class="card">
       <h1>
         Multi-Stop Route Optimizer
-        <small style="font-size: 0.75rem; color: var(--muted); font-weight: 500;">v2.3</small>
+        <small style="font-size: 0.75rem; color: var(--muted); font-weight: 500;">v2.5</small>
       </h1>
       <p class="subtitle">
-        Pick your starting store, upload address screenshots (or type/paste stops), and open the optimal route in Google Maps.
+        Pick your starting store, upload address screenshots (or type/paste stops), and open or share the optimal Google Maps route.
       </p>
 
       <!-- Fixed Source Selection -->
@@ -461,7 +470,14 @@
         </div>
       </div>
 
-      <h2 style="margin: 0 0 10px; font-size: 1.15rem;">Google Maps Link(s)</h2>
+      <div class="section-header">
+        <h2 style="margin: 0; font-size: 1.15rem;">Google Maps Link(s)</h2>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button id="shareAllBtn" class="btn-primary btn-sm" type="button">📤 Share Full Route &amp; Stops</button>
+          <button id="copyAllBtn" class="btn-secondary btn-sm" type="button">Copy Summary</button>
+        </div>
+      </div>
+
       <div id="linksContainer"></div>
 
       <h2 style="margin: 22px 0 6px; font-size: 1.15rem;">Optimized Stop Order</h2>
@@ -529,9 +545,12 @@
     const statusEl = document.getElementById("status");
     const resultsCard = document.getElementById("resultsCard");
     const warningBanner = document.getElementById("warningBanner");
+    const shareAllBtn = document.getElementById("shareAllBtn");
+    const copyAllBtn = document.getElementById("copyAllBtn");
 
     let serverGoogleReady = false;
     let isScanning = false;
+    let latestShareSummary = "";
 
     // =========================================================================
     // SOURCE PRESET MANAGEMENT
@@ -866,7 +885,6 @@
         if (usedLines.has(i)) continue;
         const line = lines[i].replace(STRAY_ICON_BEFORE_COMMA_RE, "$1");
 
-        // 1A: Full single-line address inside the line
         FULL_ONE_LINE_RE.lastIndex = 0;
         let match;
         let matchedOneLine = false;
@@ -880,7 +898,6 @@
         }
         if (matchedOneLine) continue;
 
-        // 1B: Street line on line i, followed by City/State/ZIP (or Apt + City/State/ZIP)
         const streetMatch = line.match(STREET_PART_RE);
         if (streetMatch) {
           const streetPart = streetMatch[0].trim();
@@ -940,8 +957,57 @@
     }
 
     // =========================================================================
-    // BUTTONS & ROUTE OPTIMIZATION
+    // SHARE HELPER + BUTTONS & ROUTE OPTIMIZATION
     // =========================================================================
+    async function shareContent({ title, text, url }, triggerBtn, copiedFeedback) {
+      if (navigator.share) {
+        try {
+          const payload = {};
+          if (title) payload.title = title;
+          if (text) payload.text = text;
+          if (url) payload.url = url;
+          await navigator.share(payload);
+          return;
+        } catch (err) {
+          if (err && err.name === "AbortError") return;
+        }
+      }
+
+      const fallbackText = url && !text ? url : [text, url].filter(Boolean).join("\n");
+      try {
+        await navigator.clipboard.writeText(fallbackText);
+        if (triggerBtn) {
+          const orig = triggerBtn.textContent;
+          triggerBtn.textContent = copiedFeedback || "Copied!";
+          setTimeout(() => (triggerBtn.textContent = orig), 1600);
+        }
+        setStatus("Copied to clipboard — paste it into Messages, WhatsApp, or email to share.");
+      } catch {
+        setStatus("Could not copy automatically. Use Copy Link below.", true);
+      }
+    }
+
+    shareAllBtn.addEventListener("click", () => {
+      if (!latestShareSummary) return;
+      shareContent(
+        { title: "Optimized Google Maps Route", text: latestShareSummary },
+        shareAllBtn,
+        "Copied Summary!"
+      );
+    });
+
+    copyAllBtn.addEventListener("click", async () => {
+      if (!latestShareSummary) return;
+      try {
+        await navigator.clipboard.writeText(latestShareSummary);
+        const orig = copyAllBtn.textContent;
+        copyAllBtn.textContent = "Copied!";
+        setTimeout(() => (copyAllBtn.textContent = orig), 1500);
+      } catch {
+        setStatus("Could not copy summary automatically.", true);
+      }
+    });
+
     document.getElementById("pasteBtn").addEventListener("click", async () => {
       try {
         const text = await navigator.clipboard.readText();
@@ -1044,6 +1110,7 @@
 
     async function optimizeFreeMode(addresses, goal, tripType) {
       const coords = [];
+      const approxStops = [];
       let biasCoord = null;
 
       for (let i = 0; i < addresses.length; i++) {
@@ -1053,11 +1120,14 @@
           throw new Error(`Could not locate address: "${addresses[i]}". Try adding city/state/zip.`);
         }
         if (i === 0) biasCoord = pt;
+        if (pt.approx) approxStops.push(addresses[i]);
         coords.push(pt);
       }
 
       let durations, distances;
-      let warning = "";
+      let warning = approxStops.length > 0
+        ? `Used street/area approximation to order ${approxStops.length} stop(s) not fully indexed in OpenStreetMap (${approxStops.join("; ")}). Your Google Maps link still uses the exact full addresses.`
+        : "";
       let engineLabel = "OSM + OSRM";
 
       setStatus("Calculating driving distances & travel times...");
@@ -1118,36 +1188,34 @@
       };
     }
 
-    async function geocodeAddressWithFallback(query, biasCoord) {
-      let pt = await geocodeAddress(query, biasCoord);
-      if (pt) return pt;
-
-      // Retry without Apt / Unit / Suite in case OSM doesn't index unit numbers
-      const stripped = query
-        .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
-        .replace(/\s*,\s*,/g, ",")
-        .trim();
-      if (stripped && stripped !== query) {
-        pt = await geocodeAddress(stripped, biasCoord);
-      }
-      return pt;
+    function expandStreetAbbrev(str) {
+      const map = {
+        St: "Street", Ave: "Avenue", Rd: "Road", Dr: "Drive", Ln: "Lane",
+        Blvd: "Boulevard", Ct: "Court", Pl: "Place", Pkwy: "Parkway",
+        Cir: "Circle", Ter: "Terrace", Trl: "Trail", Hwy: "Highway"
+      };
+      return str.replace(
+        /\b(St|Ave|Rd|Dr|Ln|Blvd|Ct|Pl|Pkwy|Cir|Ter|Trl|Hwy)\b\.?/gi,
+        m => {
+          const clean = m.replace(".", "");
+          const key = clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+          return map[key] || m;
+        }
+      );
     }
 
-    async function geocodeAddress(query, biasCoord) {
+    async function geocodeAddressWithFallback(query, biasCoord) {
       const zipMatch = query.match(/\b(\d{5})(?:-\d{4})?\b/);
       const expectedZip = zipMatch ? zipMatch[1] : null;
       const parts = query.split(",").map(s => s.trim()).filter(Boolean);
       const expectedCity = parts.length >= 2 ? parts[parts.length - 2].toLowerCase() : null;
 
-      let fallbackPhoton = null;
-
-      try {
-        let photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5`;
-        if (biasCoord) {
-          photonUrl += `&lat=${biasCoord.lat}&lon=${biasCoord.lon}`;
-        }
-        const res = await fetch(photonUrl);
-        if (res.ok) {
+      const tryPhoton = async (q, requireStreet = true) => {
+        try {
+          let url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5`;
+          if (biasCoord) url += `&lat=${biasCoord.lat}&lon=${biasCoord.lon}`;
+          const res = await fetch(url);
+          if (!res.ok) return null;
           const data = await res.json();
           const features = data.features || [];
 
@@ -1158,38 +1226,90 @@
 
             if (biasCoord && haversineMeters(biasCoord, pt) > 150000) continue;
 
-            if (!fallbackPhoton) fallbackPhoton = pt;
-
             const hasStreet = Boolean(p.street || p.housenumber);
+            if (requireStreet && !hasStreet) continue;
+
+            const zipExact = Boolean(expectedZip && p.postcode && p.postcode === expectedZip);
             const zipOk = !expectedZip || !p.postcode || p.postcode === expectedZip;
             const cityVal = (p.city || p.town || p.village || p.locality || "").toLowerCase();
-            const cityOk = !expectedCity || !cityVal || cityVal.includes(expectedCity) || expectedCity.includes(cityVal);
+            const cityOk =
+              zipExact ||
+              !expectedCity ||
+              !cityVal ||
+              cityVal.includes(expectedCity) ||
+              expectedCity.includes(cityVal);
 
-            if (hasStreet && zipOk && cityOk) {
-              return pt;
-            }
+            if (zipOk && cityOk) return pt;
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return null;
+      };
 
-      // Fallback to stricter Nominatim geocoder if Photon lacked an exact street/ZIP match
-      await new Promise(r => setTimeout(r, 1100));
-      try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`
-        );
-        if (res.ok) {
+      const tryNominatim = async q => {
+        await new Promise(r => setTimeout(r, 1100));
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=${encodeURIComponent(q)}`
+          );
+          if (!res.ok) return null;
           const data = await res.json();
           if (data.length > 0) {
             const pt = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-            if (!biasCoord || haversineMeters(biasCoord, pt) <= 150000) {
-              return pt;
-            }
+            if (!biasCoord || haversineMeters(biasCoord, pt) <= 150000) return pt;
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return null;
+      };
 
-      return fallbackPhoton;
+      // 1) Exact address via Photon
+      let pt = await tryPhoton(query, true);
+      if (pt) return { ...pt, approx: false };
+
+      // 2) Strip Apt / Unit / Suite and retry Photon
+      const noApt = query
+        .replace(/,?\s*\b(?:Apt|Apartment|Unit|Ste|Suite|Bldg|Floor|#)\s*[A-Za-z0-9-]+/gi, "")
+        .replace(/\s*,\s*,/g, ",")
+        .trim();
+      if (noApt && noApt !== query) {
+        pt = await tryPhoton(noApt, true);
+        if (pt) return { ...pt, approx: false };
+      }
+
+      // 3) Exact address via Nominatim
+      pt = await tryNominatim(noApt || query);
+      if (pt) return { ...pt, approx: false };
+
+      // 4) Street-only fallback (when OSM lacks the specific house number like #878 or #1919)
+      const noHouse = (noApt || query).replace(/^\s*\d+(?:-\d+)?\s+/, "").trim();
+      if (noHouse && noHouse !== (noApt || query)) {
+        const streetPart = noHouse.split(",")[0].trim();
+        const streetCandidates = [...new Set([
+          noHouse,
+          expandStreetAbbrev(noHouse),
+          expectedZip ? `${streetPart}, ${expectedZip}` : null,
+          expectedZip ? `${expandStreetAbbrev(streetPart)}, ${expectedZip}` : null
+        ].filter(Boolean))];
+
+        for (const cand of streetCandidates) {
+          pt = await tryPhoton(cand, true);
+          if (pt) return { ...pt, approx: "street" };
+        }
+        for (const cand of streetCandidates.slice(0, 2)) {
+          pt = await tryNominatim(cand);
+          if (pt) return { ...pt, approx: "street" };
+        }
+      }
+
+      // 5) Last resort: ZIP code or city center (so ordering never crashes)
+      const areaQuery = expectedZip
+        ? `${expectedZip}, US`
+        : parts.slice(1).join(", ");
+      if (areaQuery) {
+        pt = await tryPhoton(areaQuery, false);
+        if (pt) return { ...pt, approx: "area" };
+      }
+
+      return null;
     }
 
     function haversineMeters(a, b) {
@@ -1227,8 +1347,6 @@
         return sum;
       };
 
-      // For Round Trips: if forward & reverse loop directions are within 2%,
-      // pick the direction whose first stop is closer to the starting location.
       const preferCloserFirstIfRoundTrip = order => {
         if (tripType !== "round_trip" || order.length < 4) return order;
         const firstStop = order[1];
@@ -1387,8 +1505,11 @@
         warningBanner.classList.add("hidden");
       }
 
-      document.getElementById("totalTime").textContent = formatDuration(data.totalDurationSec);
-      document.getElementById("totalDist").textContent = formatDistance(data.totalDistanceMeters);
+      const timeStr = formatDuration(data.totalDurationSec);
+      const distStr = formatDistance(data.totalDistanceMeters);
+
+      document.getElementById("totalTime").textContent = timeStr;
+      document.getElementById("totalDist").textContent = distStr;
       document.getElementById("totalStops").textContent = data.orderedStops.length;
       document.getElementById("engineInfo").textContent = `${data.engineLabel} · ${data.solver}`;
 
@@ -1398,6 +1519,25 @@
         maxStops
       );
 
+      const stopLines = data.orderedStops
+        .map((s, i) => `${i + 1}. ${s.displayName || s.address}`)
+        .join("\n");
+      const linkLines = links
+        .map(l => `${l.legLabel}:\n${l.url}`)
+        .join("\n\n");
+
+      latestShareSummary =
+        `Optimized Route (${timeStr} · ${distStr} · ${data.orderedStops.length} stops)\n\n` +
+        `Stop Order:\n${stopLines}\n\n` +
+        `${linkLines}`;
+
+      const isMobileOrStandalone =
+        window.navigator.standalone === true ||
+        /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const linkAttrs = isMobileOrStandalone
+        ? `target="_top"`
+        : `target="_blank" rel="noopener noreferrer"`;
+
       const linksContainer = document.getElementById("linksContainer");
       linksContainer.innerHTML = "";
       links.forEach(item => {
@@ -1406,13 +1546,21 @@
         div.innerHTML = `
           <strong>${escapeHtml(item.legLabel)}</strong>
           <div class="link-url">${escapeHtml(item.url)}</div>
-          <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <a class="btn-link btn-maps" href="${item.url}" target="_blank" rel="noopener noreferrer">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <a class="btn-link btn-maps" href="${item.url}" ${linkAttrs}>
               Open in Google Maps ↗
             </a>
+            <button type="button" class="btn-primary share-link-btn">📤 Share Link</button>
             <button type="button" class="btn-secondary copy-btn">Copy Link</button>
           </div>
         `;
+        div.querySelector(".share-link-btn").addEventListener("click", e => {
+          shareContent(
+            { title: item.legLabel, url: item.url },
+            e.target,
+            "Link Copied!"
+          );
+        });
         div.querySelector(".copy-btn").addEventListener("click", async e => {
           await navigator.clipboard.writeText(item.url);
           e.target.textContent = "Copied!";
